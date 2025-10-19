@@ -262,8 +262,15 @@ Add status badges to your README:
 ### Trivy Vulnerability Scanning
 
 - Automatically scans for known vulnerabilities
-- Results uploaded to GitHub Security tab
-- Fails on critical vulnerabilities
+- Results displayed in workflow logs
+- Attempts to upload to GitHub Security tab (requires GitHub Advanced Security for private repos)
+- Scans for CRITICAL and HIGH severity vulnerabilities
+- Runs on every push and pull request
+
+**Note**: The SARIF upload to GitHub Security tab requires:
+- Public repository (free), OR
+- GitHub Advanced Security enabled (for private repositories)
+- If not available, the scan still runs but results only appear in logs
 
 ### Hadolint Dockerfile Linting
 

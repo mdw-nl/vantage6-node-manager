@@ -108,11 +108,22 @@ jobs:
         with:
           scan-type: 'fs'
           scan-ref: '.'
+          format: 'table'
+          exit-code: '0'  # Don't fail the build on vulnerabilities
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner (SARIF format)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
           format: 'sarif'
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
+        # Only upload if Advanced Security is enabled (will fail silently if not)
         if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'

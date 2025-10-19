@@ -7,8 +7,8 @@ LABEL description="Docker-based web application for managing Vantage6 nodes"
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    curl=8.16.0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

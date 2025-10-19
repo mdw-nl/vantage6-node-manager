@@ -143,6 +143,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive GitHub Actions documentation (`GITHUB_ACTIONS.md`)
 
 ### Changed
+- Security scan workflow now gracefully handles repositories without GitHub Advanced Security enabled
+- Trivy scan results displayed in workflow logs even when SARIF upload fails
+
+### Fixed
+- GitHub Actions security-scan job no longer fails on private repos without Advanced Security
 - Node starting now auto-detects server version instead of using hard-coded version
 - Start button now includes "Auto-detect Version" indication
 - Added `requests` library to dependencies for HTTP requests
