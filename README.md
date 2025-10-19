@@ -13,6 +13,8 @@ The current version of the Node Manager works specifically with Vantage6 version
 - 📝 **Configuration Management**: Simple form-based node configuration creation
 - 📈 **Dashboard Overview**: Quick statistics and status of all nodes
 - 🔄 **Multi-node Support**: Manage multiple node configurations from a single interface
+- 🔍 **Automatic Version Detection**: Automatically detects server version and uses matching node image
+- ⚙️ **Advanced Options**: Manual Docker image override for custom deployments
 
 ## Prerequisites
 
@@ -88,12 +90,15 @@ The current version of the Node Manager works specifically with Vantage6 version
 1. Go to the **Dashboard** or **All Nodes** page
 2. Find your node in the list
 3. Click the **Start** button (▶️)
-4. The node will start in a Docker container
+4. The application will automatically detect the server version and use the appropriate node image
+5. The node will start in a Docker container
+
+**Note**: The node version is automatically determined by querying the server's `/api/version` endpoint. If you need to use a specific version, use the "Advanced Start" option in the node details page.
 
 ### Viewing Node Details
 
 1. Click on a node name or the **View** button (👁️)
-2. View detailed configuration information
+2. View detailed configuration information including auto-detected server version
 3. See real-time container logs (for running nodes)
 4. Access quick actions: Start, Stop, Restart, Delete
 
@@ -141,7 +146,24 @@ The application provides REST API endpoints for programmatic access:
 
 - `GET /api/nodes` - List all node configurations
 - `GET /api/nodes/<name>/status` - Get status of a specific node
+- `GET /api/server/version?server_url=<url>&api_path=<path>` - Check Vantage6 server version
 - `GET /nodes/<name>/logs` - Get container logs for a running node
+
+### Example: Check Server Version
+
+```bash
+curl "http://localhost:5000/api/server/version?server_url=https://server.vantage6.ai&api_path=/api"
+```
+
+Response:
+```json
+{
+  "success": true,
+  "version": "4.7.1",
+  "server_url": "https://server.vantage6.ai",
+  "recommended_image": "harbor2.vantage6.ai/infrastructure/node:4.7.1"
+}
+```
 
 ## Architecture
 
