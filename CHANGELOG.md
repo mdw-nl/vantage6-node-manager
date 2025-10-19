@@ -5,6 +5,23 @@ All notable changes to the Vantage6 Node Manager project will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Medical Data Works Branding**: Complete corporate branding integration
+  - Custom MDW color scheme (#00adef primary, #51bcda secondary, #66615b text)
+  - MDW logo in navbar
+  - Custom CSS theme file (`static/mdw-theme.css`)
+  - Updated footer with MDW attribution
+  - Professional healthcare/research environment styling
+  - Branding documentation in `docs/BRANDING.md`
+
+### Changed
+- Updated navbar to light theme with MDW logo
+- Replaced default colors with MDW brand colors throughout
+- Updated stats cards on dashboard with MDW color gradient
+- Modified Dockerfile to include static assets
+
 ## [1.0.0] - 2025-10-19
 
 ### Added - Initial Release

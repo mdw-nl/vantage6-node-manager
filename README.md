@@ -359,8 +359,18 @@ For issues and questions:
 - Create an issue in the GitHub repository
 - Contact the Vantage6 community
 
+## Branding
+
+This application features the [Medical Data Works](https://www.medicaldataworks.nl) corporate branding:
+- Custom color scheme based on MDW brand guidelines
+- MDW logo and styling throughout the interface
+- Professional, accessible design for healthcare/research environments
+
+For more information about the branding implementation, see [docs/BRANDING.md](docs/BRANDING.md).
+
 ## Acknowledgments
 
+- Developed by [Medical Data Works](https://www.medicaldataworks.nl) - Research data made accessible
 - Built for [Vantage6](https://vantage6.ai/) - Privacy-preserving Federated Learning infrastructure
 - Uses Bootstrap 5 for UI components
 - Powered by Flask and Docker

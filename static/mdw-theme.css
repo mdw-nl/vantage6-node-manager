@@ -1,0 +1,302 @@
+/**
+ * Medical Data Works Theme
+ * Custom CSS for Vantage6 Node Manager
+ */
+
+:root {
+    /* MDW Brand Colors */
+    --mdw-primary: #00adef;       /* Primary blue */
+    --mdw-primary-dark: #0088bd;  /* Darker blue for hover states */
+    --mdw-secondary: #51bcda;     /* Link blue */
+    --mdw-text-gray: #66615b;     /* Text gray */
+    --mdw-text-dark: #333333;     /* Darker text */
+    --mdw-bg-light: #f8f9fa;      /* Light background */
+    --mdw-white: #ffffff;
+    
+    /* Status Colors */
+    --mdw-success: #28a745;
+    --mdw-danger: #dc3545;
+    --mdw-warning: #ffc107;
+    --mdw-info: var(--mdw-primary);
+}
+
+/* Navbar Styling */
+.navbar {
+    background-color: var(--mdw-white) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 0.75rem 1rem;
+}
+
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.navbar-brand img {
+    height: 40px;
+    width: auto;
+}
+
+.nav-link {
+    color: var(--mdw-text-gray) !important;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+    color: var(--mdw-primary) !important;
+}
+
+.nav-link.active {
+    color: var(--mdw-primary) !important;
+    font-weight: 600;
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: var(--mdw-primary);
+    border-color: var(--mdw-primary);
+    color: var(--mdw-white);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: var(--mdw-primary-dark);
+    border-color: var(--mdw-primary-dark);
+}
+
+.btn-outline-primary {
+    color: var(--mdw-primary);
+    border-color: var(--mdw-primary);
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--mdw-primary);
+    border-color: var(--mdw-primary);
+    color: var(--mdw-white);
+}
+
+/* Links */
+a {
+    color: var(--mdw-secondary);
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+a:hover {
+    color: var(--mdw-primary);
+    text-decoration: underline;
+}
+
+/* Cards */
+.card {
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: var(--mdw-bg-light);
+    border-bottom: 2px solid var(--mdw-primary);
+    color: var(--mdw-text-dark);
+    font-weight: 600;
+}
+
+/* Tables */
+.table {
+    color: var(--mdw-text-gray);
+}
+
+.table thead th {
+    background-color: var(--mdw-bg-light);
+    color: var(--mdw-text-dark);
+    border-bottom: 2px solid var(--mdw-primary);
+    font-weight: 600;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 173, 239, 0.05);
+}
+
+/* Badges */
+.badge-primary {
+    background-color: var(--mdw-primary);
+}
+
+.badge-success {
+    background-color: var(--mdw-success);
+}
+
+.badge-danger {
+    background-color: var(--mdw-danger);
+}
+
+.badge-warning {
+    background-color: var(--mdw-warning);
+}
+
+.badge-info {
+    background-color: var(--mdw-info);
+}
+
+/* Page Header */
+.page-header {
+    background: linear-gradient(135deg, var(--mdw-primary) 0%, var(--mdw-secondary) 100%);
+    color: var(--mdw-white);
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.page-header h1 {
+    margin: 0;
+    font-weight: 700;
+}
+
+/* Alerts */
+.alert-info {
+    background-color: rgba(0, 173, 239, 0.1);
+    border-color: var(--mdw-primary);
+    color: var(--mdw-text-dark);
+}
+
+.alert-success {
+    background-color: rgba(40, 167, 69, 0.1);
+    border-color: var(--mdw-success);
+}
+
+.alert-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+    border-color: var(--mdw-danger);
+}
+
+.alert-warning {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: var(--mdw-warning);
+}
+
+/* Footer */
+.footer {
+    background-color: var(--mdw-text-gray);
+    color: var(--mdw-white);
+    padding: 2rem 0;
+    margin-top: 4rem;
+}
+
+.footer a {
+    color: var(--mdw-white);
+    text-decoration: underline;
+}
+
+.footer a:hover {
+    color: var(--mdw-primary);
+}
+
+/* Form Styling */
+.form-label {
+    color: var(--mdw-text-dark);
+    font-weight: 500;
+}
+
+.form-control:focus {
+    border-color: var(--mdw-primary);
+    box-shadow: 0 0 0 0.2rem rgba(0, 173, 239, 0.25);
+}
+
+.form-check-input:checked {
+    background-color: var(--mdw-primary);
+    border-color: var(--mdw-primary);
+}
+
+/* Tabs */
+.nav-tabs .nav-link {
+    color: var(--mdw-text-gray);
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: transparent transparent var(--mdw-primary);
+    color: var(--mdw-primary);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--mdw-primary);
+    border-color: transparent transparent var(--mdw-primary);
+    font-weight: 600;
+}
+
+/* Progress bars */
+.progress-bar {
+    background-color: var(--mdw-primary);
+}
+
+/* Dividers */
+hr {
+    border-color: var(--mdw-primary);
+    opacity: 0.5;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--mdw-text-dark);
+}
+
+/* Body text */
+body {
+    color: var(--mdw-text-gray);
+}
+
+/* Status indicators */
+.status-running {
+    color: var(--mdw-success);
+}
+
+.status-stopped {
+    color: var(--mdw-danger);
+}
+
+.status-unknown {
+    color: var(--mdw-warning);
+}
+
+/* Code blocks */
+pre, code {
+    background-color: var(--mdw-bg-light);
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+}
+
+/* Modal customization */
+.modal-header {
+    background-color: var(--mdw-primary);
+    color: var(--mdw-white);
+}
+
+.modal-header .btn-close {
+    filter: invert(1);
+}
+
+/* Utility classes */
+.text-mdw-primary {
+    color: var(--mdw-primary) !important;
+}
+
+.text-mdw-secondary {
+    color: var(--mdw-secondary) !important;
+}
+
+.bg-mdw-primary {
+    background-color: var(--mdw-primary) !important;
+}
+
+.bg-mdw-light {
+    background-color: var(--mdw-bg-light) !important;
+}
+
+.border-mdw-primary {
+    border-color: var(--mdw-primary) !important;
+}
