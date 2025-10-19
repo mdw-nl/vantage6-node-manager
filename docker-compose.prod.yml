@@ -1,12 +1,13 @@
 version: '3.8'
 
+# Docker Compose configuration using pre-built images from GitHub Container Registry
+# This is the recommended setup for production deployments
+
 services:
   vantage6-node-manager:
-    # Option 1: Build from source (for development)
-    build: .
-    # Option 2: Use pre-built image (for production)
-    # Uncomment the line below and comment out "build: ." to use pre-built image
-    # image: ghcr.io/mdw-nl/vantage6-node-manager:latest
+    image: ghcr.io/mdw-nl/vantage6-node-manager:latest
+    # For specific version, use:
+    # image: ghcr.io/mdw-nl/vantage6-node-manager:1.0.0
     container_name: vantage6-node-manager
     ports:
       - "5000:5000"
@@ -23,6 +24,12 @@ services:
     restart: unless-stopped
     networks:
       - vantage6-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   vantage6-network:

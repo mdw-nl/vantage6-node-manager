@@ -1,0 +1,118 @@
+name: Docker Image CI Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test-docker-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: vantage6-node-manager:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test Docker image can start
+        run: |
+          # Start the container in the background
+          docker run -d --name test-container \
+            -p 5000:5000 \
+            -e SECRET_KEY=test-secret-key \
+            vantage6-node-manager:test
+          
+          # Wait for container to be ready
+          sleep 10
+          
+          # Check if container is running
+          if [ "$(docker inspect -f '{{.State.Running}}' test-container)" != "true" ]; then
+            echo "Container failed to start"
+            docker logs test-container
+            exit 1
+          fi
+          
+          echo "✅ Container started successfully"
+
+      - name: Test health endpoint
+        run: |
+          # Wait a bit more for Flask to be fully ready
+          sleep 5
+          
+          # Test if the web server responds
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/ || echo "000")
+          
+          if [ "$response" = "200" ]; then
+            echo "✅ Health check passed - HTTP $response"
+          else
+            echo "❌ Health check failed - HTTP $response"
+            docker logs test-container
+            exit 1
+          fi
+
+      - name: Check Python dependencies
+        run: |
+          # Verify all required packages are installed
+          docker exec test-container pip list | grep -i flask
+          docker exec test-container pip list | grep -i pyyaml
+          docker exec test-container pip list | grep -i docker
+          docker exec test-container pip list | grep -i requests
+          echo "✅ All dependencies are installed"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop test-container || true
+          docker rm test-container || true
+
+  lint-dockerfile:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint (Dockerfile linter)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

@@ -1,5 +1,8 @@
 # Vantage6 Node Manager
 
+[![Docker Build](https://github.com/mdw-nl/vantage6-node-manager/actions/workflows/docker-build.yml/badge.svg)](https://github.com/mdw-nl/vantage6-node-manager/actions/workflows/docker-build.yml)
+[![Docker Tests](https://github.com/mdw-nl/vantage6-node-manager/actions/workflows/docker-test.yml/badge.svg)](https://github.com/mdw-nl/vantage6-node-manager/actions/workflows/docker-test.yml)
+
 This repository contains the code for a docker-based web-application to replace the Vantage6 CLI. The web-application is written in Python (Flask) and aims to make the setup process and management of (multiple) vantage6 nodes easier.
 
 The current version of the Node Manager works specifically with Vantage6 version 4.x.x.
@@ -24,7 +27,30 @@ The current version of the Node Manager works specifically with Vantage6 version
 
 ## Quick Start
 
-### Using Docker Compose (Recommended)
+### Using Pre-built Docker Image (Easiest)
+
+Pre-built images are automatically built and published via GitHub Actions.
+
+1. **Pull the latest image**:
+   ```bash
+   docker pull ghcr.io/mdw-nl/vantage6-node-manager:latest
+   ```
+
+2. **Run with Docker**:
+   ```bash
+   docker run -d \
+     --name vantage6-node-manager \
+     -p 5000:5000 \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v ${HOME}/.config/vantage6:/root/.config/vantage6 \
+     -e SECRET_KEY=$(openssl rand -hex 32) \
+     ghcr.io/mdw-nl/vantage6-node-manager:latest
+   ```
+
+3. **Access the web interface**:
+   Open your browser and navigate to `http://localhost:5000`
+
+### Using Docker Compose (Recommended for Development)
 
 1. **Clone the repository**:
    ```bash

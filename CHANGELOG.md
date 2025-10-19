@@ -109,13 +109,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Automatic server version detection via `/api/version` endpoint
+- **Automatic server version detection** via `/api/version` endpoint
 - Dynamic node image selection based on detected server version
 - Server version display in node details page with live check
 - Advanced start modal for manual Docker image override
 - New API endpoint `/api/server/version` to check Vantage6 server versions
 - Real-time server version checking with visual feedback
 - Recommended Docker image displayed based on server version
+- **GitHub Actions CI/CD workflows**:
+  - `docker-build.yml` - Automated Docker image builds and publishing to GHCR
+  - `docker-test.yml` - Docker image testing, linting, and security scanning
+  - `release.yml` - Multi-registry publishing for releases
+- Multi-platform Docker image support (amd64, arm64)
+- Automated vulnerability scanning with Trivy
+- Dockerfile linting with Hadolint
+- Build cache for faster CI/CD builds
+- Supply chain security with build attestations
+- Pre-built Docker images available at `ghcr.io/mdw-nl/vantage6-node-manager`
+- Production docker-compose configuration (`docker-compose.prod.yml`)
+- Comprehensive GitHub Actions documentation (`GITHUB_ACTIONS.md`)
 
 ### Changed
 - Node starting now auto-detects server version instead of using hard-coded version
