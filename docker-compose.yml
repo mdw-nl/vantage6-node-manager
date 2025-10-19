@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  vantage6-node-manager:
+    build: .
+    container_name: vantage6-node-manager
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount Docker socket to manage containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount vantage6 config directory
+      - ${HOME}/.config/vantage6:/root/.config/vantage6
+      # Optional: mount data directory if using local datasets
+      - ${HOME}/vantage6-data:/data
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - FLASK_ENV=${FLASK_ENV:-production}
+    restart: unless-stopped
+    networks:
+      - vantage6-network
+
+networks:
+  vantage6-network:
+    driver: bridge

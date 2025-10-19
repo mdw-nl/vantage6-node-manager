@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-speedometer2"></i> Dashboard
+        </h1>
+    </div>
+</div>
+
+<!-- Statistics -->
+<div class="row">
+    <div class="col-md-4">
+        <div class="stats-card" style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);">
+            <h3>{{ total_configs }}</h3>
+            <p><i class="bi bi-server"></i> Total Nodes</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card" style="background: linear-gradient(135deg, #27ae60 0%, #229954 100%);">
+            <h3>{{ running_count }}</h3>
+            <p><i class="bi bi-play-circle"></i> Running Nodes</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+            <h3>{{ total_configs - running_count }}</h3>
+            <p><i class="bi bi-stop-circle"></i> Stopped Nodes</p>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning"></i> Quick Actions
+            </div>
+            <div class="card-body">
+                <a href="{{ url_for('new_node') }}" class="btn btn-primary me-2">
+                    <i class="bi bi-plus-circle"></i> Create New Node
+                </a>
+                <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary">
+                    <i class="bi bi-list"></i> View All Nodes
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Nodes -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> All Configured Nodes
+            </div>
+            <div class="card-body">
+                {% if configs %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Type</th>
+                                <th>Server URL</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for config in configs %}
+                            <tr>
+                                <td>
+                                    <strong>{{ config.name }}</strong>
+                                </td>
+                                <td>
+                                    <span class="status-badge status-{{ config.status }}">
+                                        {% if config.status == 'running' %}
+                                            <i class="bi bi-play-fill"></i> Running
+                                        {% elif config.status == 'stopped' %}
+                                            <i class="bi bi-stop-fill"></i> Stopped
+                                        {% else %}
+                                            <i class="bi bi-question-circle"></i> Unknown
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">
+                                        {{ config.type }}
+                                    </span>
+                                </td>
+                                <td>{{ config.data.server_url }}</td>
+                                <td>
+                                    <a href="{{ url_for('view_node', name=config.name) }}" class="btn btn-sm btn-info btn-action">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if config.status != 'running' %}
+                                    <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-sm btn-success btn-action">
+                                            <i class="bi bi-play"></i>
+                                        </button>
+                                    </form>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-sm btn-danger btn-action">
+                                            <i class="bi bi-stop"></i>
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> No node configurations found. 
+                    <a href="{{ url_for('new_node') }}" class="alert-link">Create your first node</a>.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Running Containers -->
+{% if running_nodes %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-play-circle"></i> Currently Running Containers
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Container Name</th>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Image</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for node in running_nodes %}
+                            <tr>
+                                <td><code>{{ node.name }}</code></td>
+                                <td><code>{{ node.id }}</code></td>
+                                <td><span class="badge bg-success">{{ node.status }}</span></td>
+                                <td><small>{{ node.image }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

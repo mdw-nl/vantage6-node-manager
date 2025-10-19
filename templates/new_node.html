@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Create Node - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-plus-circle"></i> Create New Node Configuration
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-gear"></i> Node Configuration Details
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('new_node') }}">
+                    <!-- Basic Information -->
+                    <h5 class="mb-3">Basic Information</h5>
+                    
+                    <div class="mb-3">
+                        <label for="name" class="form-label">
+                            Node Name <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="name" 
+                               name="name" 
+                               required
+                               pattern="[a-zA-Z0-9_-]+"
+                               placeholder="my-node">
+                        <div class="form-text">
+                            Only alphanumeric characters, hyphens, and underscores allowed.
+                        </div>
+                    </div>
+
+                    <!-- Server Configuration -->
+                    <h5 class="mb-3 mt-4">Server Configuration</h5>
+                    
+                    <div class="mb-3">
+                        <label for="server_url" class="form-label">
+                            Server URL <span class="text-danger">*</span>
+                        </label>
+                        <input type="url" 
+                               class="form-control" 
+                               id="server_url" 
+                               name="server_url" 
+                               required
+                               placeholder="https://server.vantage6.ai">
+                        <div class="form-text">
+                            The URL of the vantage6 server to connect to.
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="port" class="form-label">
+                                Port
+                            </label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="port" 
+                                   name="port" 
+                                   min="1"
+                                   max="65535"
+                                   placeholder="443">
+                            <div class="form-text">
+                                Leave empty for default (443 for HTTPS, 80 for HTTP).
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label for="api_path" class="form-label">
+                                API Path
+                            </label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="api_path" 
+                                   name="api_path" 
+                                   value="/api"
+                                   placeholder="/api">
+                            <div class="form-text">
+                                API endpoint path on the server.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Authentication -->
+                    <h5 class="mb-3 mt-4">Authentication</h5>
+                    
+                    <div class="mb-3">
+                        <label for="api_key" class="form-label">
+                            API Key <span class="text-danger">*</span>
+                        </label>
+                        <input type="password" 
+                               class="form-control" 
+                               id="api_key" 
+                               name="api_key" 
+                               required
+                               placeholder="Enter your API key">
+                        <div class="form-text">
+                            The API key for authenticating with the vantage6 server.
+                            <a href="#" id="toggleApiKey">Show/Hide</a>
+                        </div>
+                    </div>
+
+                    <!-- Database Configuration -->
+                    <h5 class="mb-3 mt-4">Database Configuration</h5>
+                    
+                    <div class="mb-3">
+                        <label for="db_label" class="form-label">
+                            Database Label <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="db_label" 
+                               name="db_label" 
+                               required
+                               value="default"
+                               placeholder="default">
+                        <div class="form-text">
+                            A label to identify this database.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="db_uri" class="form-label">
+                            Database URI <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="db_uri" 
+                               name="db_uri" 
+                               required
+                               placeholder="/path/to/data.csv">
+                        <div class="form-text">
+                            Path to the database file or connection string.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="db_type" class="form-label">
+                            Database Type
+                        </label>
+                        <select class="form-select" id="db_type" name="db_type">
+                            <option value="csv" selected>CSV</option>
+                            <option value="parquet">Parquet</option>
+                            <option value="sql">SQL</option>
+                            <option value="excel">Excel</option>
+                            <option value="sparql">SPARQL</option>
+                        </select>
+                    </div>
+
+                    <!-- Advanced Settings -->
+                    <h5 class="mb-3 mt-4">Advanced Settings</h5>
+                    
+                    <div class="mb-3">
+                        <label for="task_dir" class="form-label">
+                            Task Directory
+                        </label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="task_dir" 
+                               name="task_dir" 
+                               value="/tmp/vantage6"
+                               placeholder="/tmp/vantage6">
+                        <div class="form-text">
+                            Directory where task data will be stored.
+                        </div>
+                    </div>
+
+                    <!-- Form Actions -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Create Node Configuration
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Help Card -->
+        <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+                <i class="bi bi-info-circle"></i> Configuration Help
+            </div>
+            <div class="card-body">
+                <h6>Required Fields</h6>
+                <p class="small">Fields marked with <span class="text-danger">*</span> are required.</p>
+                
+                <h6 class="mt-3">API Key</h6>
+                <p class="small">You can obtain an API key from your vantage6 server administrator or through the server's web interface.</p>
+                
+                <h6 class="mt-3">Database Path</h6>
+                <p class="small">The database URI should point to a file accessible by the node. For CSV files, use an absolute path like <code>/data/mydata.csv</code>.</p>
+                
+                <h6 class="mt-3">Task Directory</h6>
+                <p class="small">This directory will store temporary task data and should have sufficient space and write permissions.</p>
+            </div>
+        </div>
+
+        <!-- Example Card -->
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-lightbulb"></i> Example Configuration
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0 small">
+                    <dt class="col-sm-5">Node Name:</dt>
+                    <dd class="col-sm-7"><code>hospital-a</code></dd>
+                    
+                    <dt class="col-sm-5">Server URL:</dt>
+                    <dd class="col-sm-7"><code>https://server.v6.local</code></dd>
+                    
+                    <dt class="col-sm-5">Port:</dt>
+                    <dd class="col-sm-7"><code>443</code></dd>
+                    
+                    <dt class="col-sm-5">DB Label:</dt>
+                    <dd class="col-sm-7"><code>patients</code></dd>
+                    
+                    <dt class="col-sm-5">DB URI:</dt>
+                    <dd class="col-sm-7"><code>/data/patients.csv</code></dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Toggle API key visibility
+    document.getElementById('toggleApiKey').addEventListener('click', function(e) {
+        e.preventDefault();
+        var apiKeyInput = document.getElementById('api_key');
+        if (apiKeyInput.type === 'password') {
+            apiKeyInput.type = 'text';
+        } else {
+            apiKeyInput.type = 'password';
+        }
+    });
+</script>
+{% endblock %}
