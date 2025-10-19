@@ -46,12 +46,14 @@
                         <i class="bi bi-arrow-clockwise"></i> Refresh Logs
                     </button>
                     {% else %}
-                    <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;">
-                        <input type="hidden" name="image" value="harbor2.vantage6.ai/infrastructure/node:4.7.1">
+                    <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;" id="startNodeForm">
                         <button type="submit" class="btn btn-success">
-                            <i class="bi bi-play-fill"></i> Start Node
+                            <i class="bi bi-play-fill"></i> Start Node (Auto-detect Version)
                         </button>
                     </form>
+                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#advancedStartModal">
+                        <i class="bi bi-gear"></i> Advanced Start
+                    </button>
                     {% endif %}
                 </div>
                 
@@ -106,6 +108,16 @@
                     
                     <dt class="col-sm-4">API Path:</dt>
                     <dd class="col-sm-8"><code>{{ config.data.api_path }}</code></dd>
+                    
+                    <dt class="col-sm-4">Server Version:</dt>
+                    <dd class="col-sm-8">
+                        <span id="serverVersion" class="badge bg-secondary">
+                            <i class="bi bi-hourglass-split"></i> Checking...
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="checkServerVersion()" title="Check server version">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </dd>
                     
                     {% if config.data.task_dir %}
                     <dt class="col-sm-4">Task Directory:</dt>
@@ -219,6 +231,52 @@ Loading logs...
         {% endif %}
     </div>
 </div>
+
+<!-- Advanced Start Modal -->
+<div class="modal fade" id="advancedStartModal" tabindex="-1" aria-labelledby="advancedStartModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="advancedStartModalLabel">
+                    <i class="bi bi-gear"></i> Advanced Start Options
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('start_node', name=config.name) }}">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> By default, the node version is automatically detected from the server. 
+                        Use this option to manually specify a Docker image.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="customImage" class="form-label">Docker Image</label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="customImage" 
+                               name="image" 
+                               placeholder="harbor2.vantage6.ai/infrastructure/node:4.7.1">
+                        <div class="form-text">
+                            Leave empty to auto-detect version from server. 
+                            Example: <code>harbor2.vantage6.ai/infrastructure/node:4.7.1</code>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <strong>Server URL:</strong> {{ config.data.server_url }}<br>
+                        <strong>API Path:</strong> {{ config.data.api_path }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-play-fill"></i> Start Node
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -238,11 +296,44 @@ Loading logs...
             });
     }
 
+    function checkServerVersion() {
+        const serverUrl = "{{ config.data.server_url }}";
+        const apiPath = "{{ config.data.api_path }}";
+        const versionBadge = document.getElementById('serverVersion');
+        
+        // Update UI to show loading state
+        versionBadge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking...';
+        versionBadge.className = 'badge bg-secondary';
+        
+        // Make API call to check server version
+        fetch(`/api/server/version?server_url=${encodeURIComponent(serverUrl)}&api_path=${encodeURIComponent(apiPath)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    versionBadge.innerHTML = `<i class="bi bi-check-circle"></i> v${data.version}`;
+                    versionBadge.className = 'badge bg-success';
+                    versionBadge.title = `Recommended image: ${data.recommended_image}`;
+                } else {
+                    versionBadge.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Unable to detect';
+                    versionBadge.className = 'badge bg-warning';
+                    versionBadge.title = data.error || 'Could not retrieve server version';
+                }
+            })
+            .catch(error => {
+                versionBadge.innerHTML = '<i class="bi bi-x-circle"></i> Error';
+                versionBadge.className = 'badge bg-danger';
+                versionBadge.title = 'Error checking server version: ' + error;
+            });
+    }
+
     // Auto-refresh logs every 5 seconds if node is running
     {% if config.status == 'running' %}
     setInterval(refreshLogs, 5000);
     // Load logs immediately
     refreshLogs();
     {% endif %}
+    
+    // Check server version on page load
+    checkServerVersion();
 </script>
 {% endblock %}

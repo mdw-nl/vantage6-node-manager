@@ -5,6 +5,7 @@ A Flask-based web interface for managing vantage6 nodes
 import os
 import yaml
 import docker
+import requests
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from pathlib import Path
@@ -28,6 +29,81 @@ def get_docker_client():
     except Exception as e:
         flash(f'Docker is not running or not accessible: {str(e)}', 'error')
         return None
+
+
+def get_server_version(server_url, api_path='/api'):
+    """
+    Get the Vantage6 server version from the server's version endpoint.
+    
+    Args:
+        server_url: Base URL of the Vantage6 server
+        api_path: API path (default: '/api')
+    
+    Returns:
+        tuple: (version_string, error_message)
+               Returns (None, error_msg) if version cannot be retrieved
+    """
+    try:
+        # Construct the version endpoint URL
+        if not server_url.endswith('/'):
+            server_url += '/'
+        
+        # Remove leading slash from api_path if present
+        api_path = api_path.lstrip('/')
+        
+        version_url = f"{server_url}{api_path}/version"
+        
+        # Make request to version endpoint with timeout
+        response = requests.get(version_url, timeout=5)
+        response.raise_for_status()
+        
+        # Parse version from response
+        version_data = response.json()
+        
+        # The response typically contains a 'version' field
+        if isinstance(version_data, dict):
+            version = version_data.get('version') or version_data.get('v')
+        else:
+            version = str(version_data)
+        
+        if version:
+            return version, None
+        else:
+            return None, "Version field not found in server response"
+            
+    except requests.exceptions.Timeout:
+        return None, "Server request timed out"
+    except requests.exceptions.ConnectionError:
+        return None, f"Could not connect to server at {server_url}"
+    except requests.exceptions.HTTPError as e:
+        return None, f"HTTP error: {e}"
+    except Exception as e:
+        return None, f"Error retrieving server version: {str(e)}"
+
+
+def get_node_image_for_version(version):
+    """
+    Determine the appropriate node Docker image based on server version.
+    
+    Args:
+        version: Server version string (e.g., "4.7.1" or "4.7.0")
+    
+    Returns:
+        str: Docker image name with tag
+    """
+    try:
+        # Extract major.minor from version (e.g., "4.7.1" -> "4.7")
+        parts = version.split('.')
+        if len(parts) >= 2:
+            major_minor = f"{parts[0]}.{parts[1]}"
+            # Use the exact version for patch-level compatibility
+            return f"harbor2.vantage6.ai/infrastructure/node:{version}"
+        else:
+            # Fallback if version format is unexpected
+            return f"harbor2.vantage6.ai/infrastructure/node:{version}"
+    except Exception:
+        # If parsing fails, use the provided version as-is
+        return f"harbor2.vantage6.ai/infrastructure/node:{version}"
 
 
 def get_node_configs():
@@ -258,7 +334,26 @@ def start_node(name):
                 flash(f'Node "{name}" started successfully', 'success')
         except docker.errors.NotFound:
             # Create and start new container
-            image = request.form.get('image', 'harbor2.vantage6.ai/infrastructure/node:4.7.1')
+            # Determine image version from server if not specified
+            image = request.form.get('image')
+            
+            if not image:
+                # Get server version to determine appropriate node image
+                server_url = config['data'].get('server_url')
+                api_path = config['data'].get('api_path', '/api')
+                
+                if server_url:
+                    version, error = get_server_version(server_url, api_path)
+                    if version:
+                        image = get_node_image_for_version(version)
+                        flash(f'Using node image for server version {version}', 'info')
+                    else:
+                        # Fallback to default if version detection fails
+                        image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                        flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
+                else:
+                    image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                    flash('No server URL configured. Using latest node image.', 'warning')
             
             # Mount configuration
             volumes = {
@@ -428,6 +523,34 @@ def api_node_status(name):
     
     status = get_node_status(name, config['type'] == 'system')
     return jsonify({'name': name, 'status': status})
+
+
+@app.route('/api/server/version')
+def api_server_version():
+    """API endpoint to check a Vantage6 server's version"""
+    server_url = request.args.get('server_url')
+    api_path = request.args.get('api_path', '/api')
+    
+    if not server_url:
+        return jsonify({'error': 'server_url parameter is required'}), 400
+    
+    version, error = get_server_version(server_url, api_path)
+    
+    if error:
+        return jsonify({
+            'success': False,
+            'error': error,
+            'server_url': server_url
+        }), 200
+    
+    recommended_image = get_node_image_for_version(version)
+    
+    return jsonify({
+        'success': True,
+        'version': version,
+        'server_url': server_url,
+        'recommended_image': recommended_image
+    })
 
 
 if __name__ == '__main__':

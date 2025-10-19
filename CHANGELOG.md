@@ -106,6 +106,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Automatic server version detection via `/api/version` endpoint
+- Dynamic node image selection based on detected server version
+- Server version display in node details page with live check
+- Advanced start modal for manual Docker image override
+- New API endpoint `/api/server/version` to check Vantage6 server versions
+- Real-time server version checking with visual feedback
+- Recommended Docker image displayed based on server version
+
+### Changed
+- Node starting now auto-detects server version instead of using hard-coded version
+- Start button now includes "Auto-detect Version" indication
+- Added `requests` library to dependencies for HTTP requests
+
+### Technical
+- Added `get_server_version()` function to query server version endpoint
+- Added `get_node_image_for_version()` function to determine appropriate image
+- Enhanced error handling for server connection issues
+- Added timeout handling for version detection requests
+
+---
+
 ## [Unreleased] - Future Plans
 
 ### Planned for v2.0
