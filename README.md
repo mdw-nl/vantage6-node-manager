@@ -17,6 +17,7 @@ The current version of the Node Manager works specifically with Vantage6 version
 - 📈 **Dashboard Overview**: Quick statistics and status of all nodes
 - 🔄 **Multi-node Support**: Manage multiple node configurations from a single interface
 - 🔍 **Automatic Version Detection**: Automatically detects server version and uses matching node image
+- 🔐 **End-to-End Encryption**: Support for RSA-based encryption for secure communication
 - ⚙️ **Advanced Options**: Manual Docker image override for custom deployments
 
 ## Prerequisites
@@ -109,7 +110,43 @@ Pre-built images are automatically built and published via GitHub Actions.
    - **Server URL**: The URL of your Vantage6 server
    - **API Key**: Authentication key for the server
    - **Database Configuration**: Path to your data file and its type
+   - **Encryption** (optional): Enable end-to-end encryption and upload your private key
 3. Click **Create Node Configuration**
+
+#### Encryption Setup
+
+Vantage6 supports end-to-end encryption to protect communication between nodes and ensure data privacy. When creating a node:
+
+1. **Enable Encryption**: Check the "Enable Encryption" checkbox
+2. **Choose Your Key Source**:
+   
+   **Option A: Generate New Key (Recommended for new organizations)**
+   - Click the "Generate New Key" tab
+   - Click "Generate New RSA Key Pair" button
+   - The application will create a secure 4096-bit RSA key pair
+   - Download your private key immediately using the "Download Private Key" button
+   - The key will be automatically saved with your node configuration
+   - **Important**: Share this downloaded key with all other nodes and users in your organization
+
+   **Option B: Upload Existing Key (For existing organizations)**
+   - Click the "Upload Existing Key" tab
+   - Select your organization's RSA private key file (PEM format)
+   - The key will be securely stored with your node configuration
+
+3. **Important**: All nodes and users in your organization must use the same private key
+
+**How it works:**
+- All task inputs and results are encrypted using RSA keys
+- The server cannot read encrypted communications
+- Only your organization (with the private key) can decrypt messages
+- A shared secret is used for symmetric encryption of the payload
+
+**Key Security:**
+- Private keys are stored securely in `~/.config/vantage6/node/private_keys/`
+- Files are set to read-only permissions (0600) for the owner
+- Back up your private key safely - losing it means you cannot decrypt existing messages
+- Never share your private key with other organizations
+- Generated keys use 4096-bit RSA for maximum security
 
 ### Starting a Node
 
@@ -267,13 +304,41 @@ pytest
 - Check if port 5000 is available: `lsof -i :5000`
 - If using Docker, ensure port mapping is correct in docker-compose.yml
 
+### Encryption Issues
+
+**Problem**: "Encryption enabled but no private key file provided"
+
+**Solution**:
+- Ensure you've uploaded a valid private key file when creating the node
+- The private key must be in PEM format
+- Generate a new key pair if needed: `v6 node create-private-key`
+
+**Problem**: Node fails to start with encryption errors
+
+**Solution**:
+- Verify the private key file exists and is readable
+- Check that the private key matches the public key on the server
+- Ensure all nodes in your organization use the same private key
+- Verify the collaboration requires encryption (check with server admin)
+
+**Problem**: Cannot decrypt task results
+
+**Solution**:
+- Confirm you're using the correct private key for your organization
+- Verify the public key on the server matches your private key
+- Check that other nodes in the collaboration have encryption enabled
+- Ensure the private key hasn't been changed since results were encrypted
+
 ## Security Considerations
 
 - **Change the default SECRET_KEY** in production
 - Store sensitive information (API keys) securely
+- **Protect your private keys**: Never share them with other organizations
+- Back up private keys securely - losing them means losing access to encrypted data
 - Use HTTPS in production environments
 - Restrict Docker socket access appropriately
 - Consider implementing authentication for the web interface
+- Regularly rotate API keys and encryption keys according to your security policy
 
 ## Contributing
 

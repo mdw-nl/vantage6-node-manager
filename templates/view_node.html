@@ -168,6 +168,62 @@
                 {% endif %}
             </div>
         </div>
+
+        <!-- Encryption Configuration -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-shield-lock"></i> Encryption Configuration
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Status:</dt>
+                    <dd class="col-sm-8">
+                        {% if config.data.encryption and config.data.encryption.enabled %}
+                            <span class="badge bg-success">
+                                <i class="bi bi-shield-lock-fill"></i> Enabled
+                            </span>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> End-to-end encryption is active. All communication between nodes is encrypted.
+                                </small>
+                            </div>
+                        {% else %}
+                            <span class="badge bg-secondary">
+                                <i class="bi bi-shield-slash"></i> Disabled
+                            </span>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> Communication is not encrypted. Consider enabling encryption for enhanced security.
+                                </small>
+                            </div>
+                        {% endif %}
+                    </dd>
+                    
+                    {% if config.data.encryption and config.data.encryption.enabled and config.data.encryption.private_key %}
+                    <dt class="col-sm-4">Private Key:</dt>
+                    <dd class="col-sm-8">
+                        <code>{{ config.data.encryption.private_key }}</code>
+                        <br>
+                        <small class="text-warning">
+                            <i class="bi bi-exclamation-triangle"></i> Keep this key secure and backed up. All nodes and users in your organization must use the same key.
+                        </small>
+                    </dd>
+                    {% endif %}
+                </dl>
+                
+                {% if config.data.encryption and config.data.encryption.enabled %}
+                <div class="alert alert-info mt-3 mb-0">
+                    <h6 class="alert-heading"><i class="bi bi-lightbulb"></i> How Encryption Works</h6>
+                    <ul class="small mb-0">
+                        <li>All task inputs and results are encrypted using RSA keys</li>
+                        <li>The server cannot read encrypted communications</li>
+                        <li>Only your organization (with the private key) can decrypt messages</li>
+                        <li>Public keys are automatically shared with the server</li>
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 
     <!-- Container Information & Logs -->

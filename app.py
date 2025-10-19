@@ -6,9 +6,15 @@ import os
 import yaml
 import docker
 import requests
+import shutil
+import base64
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from pathlib import Path
+from werkzeug.utils import secure_filename
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -79,6 +85,43 @@ def get_server_version(server_url, api_path='/api'):
         return None, f"HTTP error: {e}"
     except Exception as e:
         return None, f"Error retrieving server version: {str(e)}"
+
+
+def generate_rsa_key_pair():
+    """
+    Generate a new RSA key pair for encryption.
+    
+    Returns:
+        tuple: (private_key_pem, public_key_pem) as strings
+    """
+    try:
+        # Generate private key (4096 bits for strong security)
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=4096,
+            backend=default_backend()
+        )
+        
+        # Serialize private key to PEM format
+        private_key_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        
+        # Generate public key from private key
+        public_key = private_key.public_key()
+        
+        # Serialize public key to PEM format
+        public_key_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+        
+        return private_key_pem, public_key_pem
+    except Exception as e:
+        print(f"Error generating RSA key pair: {e}")
+        return None, None
 
 
 def get_node_image_for_version(version):
@@ -234,6 +277,71 @@ def new_node():
             db_uri = request.form.get('db_uri')
             db_type = request.form.get('db_type', 'csv')
             
+            # Encryption configuration
+            encryption_enabled = request.form.get('encryption_enabled') == 'on'
+            private_key_path = None
+            
+            if encryption_enabled:
+                # Check if key was generated or uploaded
+                key_source = request.form.get('key_source', 'upload')
+                
+                if key_source == 'generate':
+                    # Handle generated private key
+                    generated_private_key = request.form.get('generated_private_key')
+                    if generated_private_key:
+                        # Create a private_keys subdirectory if it doesn't exist
+                        keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
+                        keys_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # Save with node name
+                        safe_filename = f"{name}_private_key.pem"
+                        private_key_path = keys_dir / safe_filename
+                        
+                        # Write the generated key to file
+                        with open(private_key_path, 'w') as f:
+                            f.write(generated_private_key)
+                        
+                        # Set proper permissions (read-only for owner)
+                        os.chmod(str(private_key_path), 0o600)
+                        
+                        # Store relative path in config for portability
+                        private_key_path = str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
+                        
+                        flash(f'Generated private key saved securely', 'success')
+                    else:
+                        flash('Encryption enabled but no private key was generated', 'error')
+                        encryption_enabled = False
+                else:
+                    # Handle private key file upload
+                    if 'private_key_file' in request.files:
+                        private_key_file = request.files['private_key_file']
+                        if private_key_file and private_key_file.filename:
+                            # Secure the filename and save to config directory
+                            filename = secure_filename(private_key_file.filename)
+                            
+                            # Create a private_keys subdirectory if it doesn't exist
+                            keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
+                            keys_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            # Save with node name prefix to avoid conflicts
+                            safe_filename = f"{name}_{filename}"
+                            private_key_path = keys_dir / safe_filename
+                            private_key_file.save(str(private_key_path))
+                            
+                            # Set proper permissions (read-only for owner)
+                            os.chmod(str(private_key_path), 0o600)
+                            
+                            # Store relative path in config for portability
+                            private_key_path = str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
+                            
+                            flash(f'Private key uploaded and saved securely', 'success')
+                        else:
+                            flash('Encryption enabled but no private key file provided', 'error')
+                            encryption_enabled = False
+                    else:
+                        flash('Encryption enabled but no private key file uploaded', 'error')
+                        encryption_enabled = False
+            
             # Build configuration
             config = {
                 'api_key': api_key,
@@ -251,7 +359,8 @@ def new_node():
                     'file': f'{name}.log'
                 },
                 'encryption': {
-                    'enabled': False
+                    'enabled': encryption_enabled,
+                    'private_key': private_key_path if encryption_enabled else None
                 }
             }
             
@@ -260,7 +369,10 @@ def new_node():
             with open(config_file, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             
-            flash(f'Node configuration "{name}" created successfully!', 'success')
+            if encryption_enabled:
+                flash(f'Node configuration "{name}" created successfully with encryption enabled!', 'success')
+            else:
+                flash(f'Node configuration "{name}" created successfully!', 'success')
             return redirect(url_for('list_nodes'))
             
         except Exception as e:
@@ -551,6 +663,31 @@ def api_server_version():
         'server_url': server_url,
         'recommended_image': recommended_image
     })
+
+
+@app.route('/api/encryption/generate-key', methods=['POST'])
+def api_generate_encryption_key():
+    """API endpoint to generate a new RSA key pair for encryption"""
+    try:
+        private_key_pem, public_key_pem = generate_rsa_key_pair()
+        
+        if not private_key_pem or not public_key_pem:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to generate RSA key pair'
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'private_key': private_key_pem,
+            'public_key': public_key_pem,
+            'message': 'RSA key pair generated successfully. Please download and save your private key securely!'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Error generating key pair: {str(e)}'
+        }), 500
 
 
 if __name__ == '__main__':

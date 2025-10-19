@@ -116,10 +116,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New API endpoint `/api/server/version` to check Vantage6 server versions
 - Real-time server version checking with visual feedback
 - Recommended Docker image displayed based on server version
+- **End-to-end encryption support**:
+  - Encryption enable/disable toggle in node creation form
+  - **Web-based RSA key pair generation** (4096-bit keys)
+  - One-click private key generation without CLI knowledge
+  - Private key download functionality
+  - Public key viewing modal
+  - Private key file upload functionality (for existing keys)
+  - Secure private key storage with proper permissions (0600)
+  - Encryption status display in node list and detail views
+  - Private key path configuration in node YAML files
+  - Detailed encryption information and help text
+  - Encryption troubleshooting documentation
+  - API endpoint for key generation (`/api/encryption/generate-key`)
 - **GitHub Actions CI/CD workflows**:
   - `docker-build.yml` - Automated Docker image builds and publishing to GHCR
   - `docker-test.yml` - Docker image testing, linting, and security scanning
-  - `release.yml` - Multi-registry publishing for releases
+  - `release.yml` - Release workflow for publishing to GHCR
 - Multi-platform Docker image support (amd64, arm64)
 - Automated vulnerability scanning with Trivy
 - Dockerfile linting with Hadolint

@@ -18,7 +18,7 @@
                 <i class="bi bi-gear"></i> Node Configuration Details
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('new_node') }}">
+                <form method="POST" action="{{ url_for('new_node') }}" enctype="multipart/form-data">
                     <!-- Basic Information -->
                     <h5 class="mb-3">Basic Information</h5>
                     
@@ -155,6 +155,109 @@
                         </select>
                     </div>
 
+                    <!-- Encryption Configuration -->
+                    <h5 class="mb-3 mt-4">
+                        <i class="bi bi-shield-lock"></i> Encryption Configuration
+                    </h5>
+                    
+                    <div class="alert alert-info" role="alert">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>End-to-End Encryption:</strong> Enable encryption to protect communication between nodes and ensure data privacy. All nodes in the collaboration must agree on this setting.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" 
+                                   type="checkbox" 
+                                   id="encryption_enabled" 
+                                   name="encryption_enabled"
+                                   onchange="toggleEncryptionOptions()">
+                            <label class="form-check-label" for="encryption_enabled">
+                                <strong>Enable Encryption</strong>
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            Enable end-to-end encryption for secure communication. Requires an RSA private key.
+                        </div>
+                    </div>
+
+                    <div id="encryption_options" style="display: none;">
+                        <!-- Option selector: Generate or Upload -->
+                        <div class="mb-3">
+                            <label class="form-label">Private Key Source</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="key_source" id="key_source_upload" value="upload" checked onchange="toggleKeySource()">
+                                <label class="btn btn-outline-primary" for="key_source_upload">
+                                    <i class="bi bi-upload"></i> Upload Existing Key
+                                </label>
+                                
+                                <input type="radio" class="btn-check" name="key_source" id="key_source_generate" value="generate" onchange="toggleKeySource()">
+                                <label class="btn btn-outline-success" for="key_source_generate">
+                                    <i class="bi bi-key"></i> Generate New Key
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Upload option -->
+                        <div id="upload_key_section">
+                            <div class="mb-3">
+                                <label for="private_key_file" class="form-label">
+                                    Private Key File <span class="text-danger" id="key_required">*</span>
+                                </label>
+                                <input type="file" 
+                                       class="form-control" 
+                                       id="private_key_file" 
+                                       name="private_key_file"
+                                       accept=".pem,.key">
+                                <div class="form-text">
+                                    Upload your organization's RSA private key file (PEM format). 
+                                    <strong>All nodes and users from your organization must use the same private key.</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Generate option -->
+                        <div id="generate_key_section" style="display: none;">
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-success" id="generate_key_btn" onclick="generateEncryptionKey()">
+                                    <i class="bi bi-key"></i> Generate New RSA Key Pair
+                                </button>
+                                <div class="form-text mt-2">
+                                    Click to generate a new 4096-bit RSA key pair. You'll be able to download and review it before creating the node.
+                                </div>
+                            </div>
+
+                            <!-- Generated key display -->
+                            <div id="generated_key_display" style="display: none;">
+                                <div class="alert alert-success">
+                                    <h6 class="alert-heading"><i class="bi bi-check-circle"></i> Key Pair Generated Successfully!</h6>
+                                    <p class="mb-2">Your RSA key pair has been generated. <strong>Download your private key now and store it securely.</strong></p>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="downloadPrivateKey()">
+                                        <i class="bi bi-download"></i> Download Private Key
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-info" onclick="viewPublicKey()">
+                                        <i class="bi bi-eye"></i> View Public Key
+                                    </button>
+                                </div>
+
+                                <!-- Hidden textarea to store generated private key -->
+                                <input type="hidden" id="generated_private_key" name="generated_private_key">
+                                <input type="hidden" id="generated_public_key" name="generated_public_key">
+                                
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Important:</strong>
+                                    <ul class="mb-0 mt-2">
+                                        <li>Download and back up your private key before proceeding</li>
+                                        <li>The private key will be saved automatically with the node configuration</li>
+                                        <li>Share this private key with all nodes and users in your organization</li>
+                                        <li>Never share it with other organizations</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Advanced Settings -->
                     <h5 class="mb-3 mt-4">Advanced Settings</h5>
                     
@@ -199,6 +302,17 @@
                 
                 <h6 class="mt-3">API Key</h6>
                 <p class="small">You can obtain an API key from your vantage6 server administrator or through the server's web interface.</p>
+                
+                <h6 class="mt-3">Encryption</h6>
+                <p class="small">
+                    Encryption is handled at the organization level. When enabled:
+                    <ul class="small">
+                        <li>All communication is encrypted end-to-end</li>
+                        <li>The server cannot read task inputs/outputs</li>
+                        <li>All nodes in your organization must use the same private key</li>
+                        <li>The public key is automatically shared with the server</li>
+                    </ul>
+                </p>
                 
                 <h6 class="mt-3">Database Path</h6>
                 <p class="small">The database URI should point to a file accessible by the node. For CSV files, use an absolute path like <code>/data/mydata.csv</code>.</p>
@@ -248,5 +362,150 @@
             apiKeyInput.type = 'password';
         }
     });
+
+    // Toggle encryption options visibility
+    function toggleEncryptionOptions() {
+        var encryptionEnabled = document.getElementById('encryption_enabled').checked;
+        var encryptionOptions = document.getElementById('encryption_options');
+        var privateKeyFile = document.getElementById('private_key_file');
+        
+        if (encryptionEnabled) {
+            encryptionOptions.style.display = 'block';
+            // Set required based on current key source
+            toggleKeySource();
+        } else {
+            encryptionOptions.style.display = 'none';
+            privateKeyFile.removeAttribute('required');
+            privateKeyFile.value = '';  // Clear the file input
+        }
+    }
+
+    // Toggle between upload and generate key sources
+    function toggleKeySource() {
+        var uploadSelected = document.getElementById('key_source_upload').checked;
+        var uploadSection = document.getElementById('upload_key_section');
+        var generateSection = document.getElementById('generate_key_section');
+        var privateKeyFile = document.getElementById('private_key_file');
+        
+        if (uploadSelected) {
+            uploadSection.style.display = 'block';
+            generateSection.style.display = 'none';
+            privateKeyFile.setAttribute('required', 'required');
+        } else {
+            uploadSection.style.display = 'none';
+            generateSection.style.display = 'block';
+            privateKeyFile.removeAttribute('required');
+        }
+    }
+
+    // Global variable to store generated keys
+    let generatedKeys = null;
+
+    // Generate encryption key
+    async function generateEncryptionKey() {
+        const btn = document.getElementById('generate_key_btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
+
+        try {
+            const response = await fetch('/api/encryption/generate-key', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Store the generated keys
+                generatedKeys = {
+                    privateKey: data.private_key,
+                    publicKey: data.public_key
+                };
+
+                // Store in hidden fields
+                document.getElementById('generated_private_key').value = data.private_key;
+                document.getElementById('generated_public_key').value = data.public_key;
+
+                // Show success message and download buttons
+                document.getElementById('generated_key_display').style.display = 'block';
+
+                // Update button
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> Key Generated';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-success');
+            } else {
+                alert('Error generating key: ' + data.error);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-key"></i> Generate New RSA Key Pair';
+            }
+        } catch (error) {
+            alert('Error generating key: ' + error.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-key"></i> Generate New RSA Key Pair';
+        }
+    }
+
+    // Download private key
+    function downloadPrivateKey() {
+        if (!generatedKeys) {
+            alert('No key has been generated yet!');
+            return;
+        }
+
+        const blob = new Blob([generatedKeys.privateKey], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'vantage6_private_key.pem';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    }
+
+    // View public key
+    function viewPublicKey() {
+        if (!generatedKeys) {
+            alert('No key has been generated yet!');
+            return;
+        }
+
+        const modal = document.createElement('div');
+        modal.innerHTML = `
+            <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="bi bi-key"></i> Public Key</h5>
+                            <button type="button" class="btn-close" onclick="this.closest('.modal').parentElement.remove()"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>This is your public key that will be shared with the Vantage6 server:</p>
+                            <pre style="background: #f8f9fa; padding: 1rem; border-radius: 0.25rem; max-height: 300px; overflow-y: auto;">${generatedKeys.publicKey}</pre>
+                            <button class="btn btn-sm btn-secondary" onclick="copyPublicKey()">
+                                <i class="bi bi-clipboard"></i> Copy to Clipboard
+                            </button>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').parentElement.remove()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // Copy public key to clipboard
+    function copyPublicKey() {
+        if (!generatedKeys) {
+            return;
+        }
+        navigator.clipboard.writeText(generatedKeys.publicKey).then(() => {
+            alert('Public key copied to clipboard!');
+        });
+    }
 </script>
 {% endblock %}
