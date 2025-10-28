@@ -58,43 +58,11 @@ cd "$INSTALL_DIR"
 
 # Download necessary files
 echo ""
-echo "📥 Downloading necessary files..."
+echo "📥 Downloading production docker-compose file..."
 
-# Download docker-compose.yml
-echo "   - docker-compose.yml"
-curl -fsSL "$REPO_RAW_URL/docker-compose.yml" -o docker-compose.yml
-
-# Download Dockerfile
-echo "   - Dockerfile"
-curl -fsSL "$REPO_RAW_URL/Dockerfile" -o Dockerfile
-
-# Download requirements.txt
-echo "   - requirements.txt"
-curl -fsSL "$REPO_RAW_URL/requirements.txt" -o requirements.txt
-
-# Download app.py
-echo "   - app.py"
-curl -fsSL "$REPO_RAW_URL/app.py" -o app.py
-
-# Create necessary subdirectories
-mkdir -p templates static/img
-
-# Download templates
-echo "   - templates/"
-for template in base.html index.html new_node.html nodes.html view_node.html; do
-    curl -fsSL "$REPO_RAW_URL/templates/$template" -o "templates/$template" 2>/dev/null || echo "     ⚠️  Could not download $template"
-done
-
-# Download static files
-echo "   - static/"
-curl -fsSL "$REPO_RAW_URL/static/mdw-theme.css" -o "static/mdw-theme.css" 2>/dev/null || echo "     ⚠️  Could not download mdw-theme.css"
-curl -fsSL "$REPO_RAW_URL/static/img/mdw-logo.png" -o "static/img/mdw-logo.png" 2>/dev/null || echo "     ⚠️  Could not download mdw-logo.png"
-
-# Download .env.example if it doesn't exist
-if [ ! -f .env.example ]; then
-    echo "   - .env.example"
-    curl -fsSL "$REPO_RAW_URL/.env.example" -o .env.example 2>/dev/null || echo "     ⚠️  Could not download .env.example"
-fi
+# Download production docker-compose.yml (uses pre-built image)
+echo "   - docker-compose.prod.yml"
+curl -fsSL "$REPO_RAW_URL/docker-compose.prod.yml" -o docker-compose.yml
 
 echo "✅ Files downloaded"
 
@@ -162,9 +130,9 @@ echo "Starting Vantage6 Node Manager..."
 echo "========================================="
 echo ""
 
-# Build and start the application
-echo "🔨 Building Docker image..."
-$DOCKER_COMPOSE build
+# Pull and start the application (using pre-built image)
+echo "� Pulling latest Docker image..."
+$DOCKER_COMPOSE pull
 
 echo ""
 echo "🚀 Starting application..."

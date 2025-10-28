@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/s
 - ✅ Checks for Docker and Docker Compose
 - ✅ Downloads all necessary files to `~/vantage6-node-manager`
 - ✅ Creates required directories and `.env` file
-- ✅ Builds and starts the application automatically
+- ✅ Pulls the latest pre-built Docker image and starts the application automatically
 
 **Custom installation directory:**
 ```bash
