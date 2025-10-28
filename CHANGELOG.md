@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - CRITICAL
+- **Node Container Startup**: Fixed containers exiting immediately after creation
+  - Added missing `command` parameter (`vnode-local start --name ... --config ... --dockerized`)
+  - Created required Docker volumes (data, vpn, ssh, squid) per official implementation
+  - Fixed volume mount structure to match official vantage6 CLI
+  - Added required environment variables (DATA_VOLUME_NAME, VPN_VOLUME_NAME, etc.)
+  - Enabled TTY mode for proper container I/O
+  - Mounted config directory instead of single config file
+  - Documentation in `docs/VANTAGE6_OFFICIAL_ALIGNMENT.md`
+- **Database URI Environment Variables**: Added database URI environment variables for dockerized nodes
+  - Node expects `<LABEL>_DATABASE_URI` environment variables when running in dockerized mode
+  - Automatically sets environment variables for all configured databases
+  - Fixes `KeyError: 'DEFAULT_DATABASE_URI'` error
+  - Documentation in `docs/DATABASE_URI_FIX.md`
+- **Node Configuration Logging**: Updated node configuration creation to include complete logging structure
+  - Now includes all required fields: backup_count, datefmt, format, max_size, use_console, loggers
+  - Prevents "Invalid value provided for field 'logging'" validation errors
+  - Matches official vantage6 node configuration template structure
+
 ### Added
 - **Medical Data Works Branding**: Complete corporate branding integration
   - Custom MDW color scheme (#00adef primary, #51bcda secondary, #66615b text)
@@ -15,12 +34,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated footer with MDW attribution
   - Professional healthcare/research environment styling
   - Branding documentation in `docs/BRANDING.md`
+- **Production Path Configuration**: Comprehensive path and volume management
+  - Environment variable support for all directory paths
+  - System config directory mount (`/etc/vantage6/node`)
+  - Data directory environment variable (`VANTAGE6_DATA_DIR`)
+  - Documentation for path mappings in production (`docs/PATHS_AND_VOLUMES.md`)
+- **Docker Volume Management**: Automatic creation of persistent volumes
+  - Data volume for task data and results
+  - VPN volume for VPN configuration
+  - SSH volume for SSH tunnel configuration
+  - Squid volume for proxy configuration
 
 ### Changed
 - Updated navbar to light theme with MDW logo
 - Replaced default colors with MDW brand colors throughout
 - Updated stats cards on dashboard with MDW color gradient
 - Modified Dockerfile to include static assets
+- **Path Configuration Improvements**:
+  - Config directories now use environment variables instead of `Path.home()`
+- **Volume Mounting Strategy**:
+  - Changed `/mnt/data` from bind mount to Docker volume
+  - Mount config directory instead of individual config files
+  - Use volume names for VPN, SSH, and Squid instead of bind mounts
+  - Default task directory changed from `/tmp/vantage6` to `/mnt/data/tasks` for persistence
+  - Database mounting logic improved to handle container environments correctly
+  - Added intelligent path resolution for database files (absolute, relative, and mounted paths)
+  - Added warning messages when database files are not found
+
+### Fixed
+- **Production Docker Path Issues**:
+  - Fixed database file mounting when Node Manager runs in container
+  - Resolved config directory path issues in containerized environments
+  - Fixed ephemeral task directory using `/tmp` (now uses persistent mounted volume)
+  - Added system config directory volume mount to docker-compose files
+  - Corrected path handling for database files in various mount scenarios
+  - **Critical Fix**: Node Manager now converts container paths to host paths when creating node containers
+    - Prevents "path is not shared from the host" Docker errors
+    - Enables proper volume mounting from containerized Node Manager to node containers
+    - Adds `container_path_to_host_path()` helper function for path translation
 
 ## [1.0.0] - 2025-10-19
 

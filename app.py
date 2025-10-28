@@ -19,13 +19,58 @@ from cryptography.hazmat.backends import default_backend
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Configuration
-VANTAGE6_CONFIG_DIR = Path.home() / '.config' / 'vantage6' / 'node'
-VANTAGE6_SYSTEM_CONFIG_DIR = Path('/etc/vantage6/node')
+# Configuration - use environment variables for container flexibility
+VANTAGE6_CONFIG_DIR = Path(os.environ.get('VANTAGE6_CONFIG_DIR', '/root/.config/vantage6/node'))
+VANTAGE6_SYSTEM_CONFIG_DIR = Path(os.environ.get('VANTAGE6_SYSTEM_CONFIG_DIR', '/etc/vantage6/node'))
+VANTAGE6_DATA_DIR = Path(os.environ.get('VANTAGE6_DATA_DIR', '/data'))
 APPNAME = 'vantage6'
 
 # Ensure config directory exists
 VANTAGE6_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def container_path_to_host_path(container_path):
+    """
+    Convert a path inside the Node Manager container to the corresponding host path.
+    This is needed when the Node Manager creates volumes for node containers.
+    
+    Args:
+        container_path: Path as seen inside the Node Manager container
+    
+    Returns:
+        Host path that Docker can mount, or None if conversion not possible
+    """
+    container_path_str = str(container_path)
+    
+    # Get the actual host HOME directory from environment variable
+    # When running in Docker, this should be set to the host's HOME
+    host_home = os.environ.get('HOST_HOME', str(Path.home()))
+    
+    # Check if path is in the user config directory
+    if container_path_str.startswith('/root/.config/vantage6'):
+        # /root/.config/vantage6 is mounted from ${HOME}/.config/vantage6 on host
+        # Convert: /root/.config/vantage6/node/file.yaml -> ${HOME}/.config/vantage6/node/file.yaml
+        relative_path = container_path_str.replace('/root/.config/vantage6/', '')
+        host_path = Path(host_home) / '.config' / 'vantage6' / relative_path
+        return str(host_path)
+    
+    # Check if path is in the system config directory
+    elif container_path_str.startswith('/etc/vantage6/node'):
+        # /etc/vantage6/node is mounted from ${HOME}/.config/vantage6-system on host
+        relative_path = container_path_str.replace('/etc/vantage6/node/', '')
+        host_path = Path(host_home) / '.config' / 'vantage6-system' / relative_path
+        return str(host_path)
+    
+    # Check if path is in the data directory
+    elif container_path_str.startswith('/data/'):
+        # /data is mounted from ${HOME}/vantage6-data on host
+        relative_path = container_path_str.replace('/data/', '')
+        host_path = Path(host_home) / 'vantage6-data' / relative_path
+        return str(host_path)
+    
+    # Path is not in a known mounted volume
+    else:
+        return None
 
 
 def get_docker_client():
@@ -270,7 +315,8 @@ def new_node():
             api_key = request.form.get('api_key')
             port = request.form.get('port')
             api_path = request.form.get('api_path', '/api')
-            task_dir = request.form.get('task_dir', '/tmp/vantage6')
+            # Use persistent data directory instead of /tmp for container environments
+            task_dir = request.form.get('task_dir', '/mnt/data/tasks')
             
             # Database configuration
             db_label = request.form.get('db_label', 'default')
@@ -355,8 +401,20 @@ def new_node():
                     'type': db_type
                 }],
                 'logging': {
+                    'backup_count': 5,
+                    'datefmt': '%Y-%m-%d %H:%M:%S',
+                    'file': f'{name}.log',
+                    'format': '%(asctime)s - %(name)-14s - %(levelname)-8s - %(message)s',
                     'level': 'INFO',
-                    'file': f'{name}.log'
+                    'max_size': 1024,
+                    'use_console': True,
+                    'loggers': [
+                        {'name': 'urllib3', 'level': 'warning'},
+                        {'name': 'requests', 'level': 'warning'},
+                        {'name': 'engineio.client', 'level': 'warning'},
+                        {'name': 'docker.utils.config', 'level': 'warning'},
+                        {'name': 'docker.auth', 'level': 'warning'}
+                    ]
                 },
                 'encryption': {
                     'enabled': encryption_enabled,
@@ -419,7 +477,7 @@ def view_node(name):
 
 @app.route('/nodes/<name>/start', methods=['POST'])
 def start_node(name):
-    """Start a node"""
+    """Start a node container following official vantage6 implementation"""
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
     
@@ -442,59 +500,143 @@ def start_node(name):
                 flash(f'Node "{name}" is already running', 'warning')
                 return redirect(url_for('view_node', name=name))
             else:
-                existing.start()
-                flash(f'Node "{name}" started successfully', 'success')
+                # Remove the existing stopped container and recreate it
+                existing.remove()
+                flash(f'Removed existing stopped container, creating new one...', 'info')
         except docker.errors.NotFound:
-            # Create and start new container
-            # Determine image version from server if not specified
-            image = request.form.get('image')
+            # Container doesn't exist, will create below
+            pass
+        
+        # Determine image version from server if not specified
+        image = request.form.get('image')
+        
+        if not image:
+            # Get server version to determine appropriate node image
+            server_url = config['data'].get('server_url')
+            api_path = config['data'].get('api_path', '/api')
             
-            if not image:
-                # Get server version to determine appropriate node image
-                server_url = config['data'].get('server_url')
-                api_path = config['data'].get('api_path', '/api')
-                
-                if server_url:
-                    version, error = get_server_version(server_url, api_path)
-                    if version:
-                        image = get_node_image_for_version(version)
-                        flash(f'Using node image for server version {version}', 'info')
-                    else:
-                        # Fallback to default if version detection fails
-                        image = 'harbor2.vantage6.ai/infrastructure/node:latest'
-                        flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
+            if server_url:
+                version, error = get_server_version(server_url, api_path)
+                if version:
+                    image = get_node_image_for_version(version)
+                    flash(f'Using node image for server version {version}', 'info')
                 else:
                     image = 'harbor2.vantage6.ai/infrastructure/node:latest'
-                    flash('No server URL configured. Using latest node image.', 'warning')
-            
-            # Mount configuration
-            volumes = {
-                config['path']: {'bind': '/mnt/config.yaml', 'mode': 'ro'}
-            }
-            
-            # Mount databases if they exist
-            if config['data'].get('databases'):
-                for db in config['data']['databases']:
-                    db_path = Path(db['uri'])
-                    if db_path.exists() and db_path.is_file():
-                        volumes[str(db_path)] = {'bind': f'/mnt/data/{db["label"]}', 'mode': 'ro'}
-            
-            container = client.containers.run(
-                image,
-                name=container_name,
-                detach=True,
-                volumes=volumes,
-                environment={
-                    'VANTAGE6_CONFIG_FILE': '/mnt/config.yaml'
-                },
-                labels={
-                    'vantage6-type': 'node',
-                    'vantage6-name': name
-                }
-            )
-            flash(f'Node "{name}" started successfully', 'success')
+                    flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
+            else:
+                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                flash('No server URL configured. Using latest node image.', 'warning')
+        
+        # Create Docker volumes (similar to official implementation)
+        # These volumes persist data, VPN config, SSH config, and Squid proxy config
+        data_volume_name = f"{container_name}-vol"
+        vpn_volume_name = f"{container_name}-vpn-vol"
+        ssh_volume_name = f"{container_name}-ssh-vol"
+        squid_volume_name = f"{container_name}-squid-vol"
+        
+        # Create volumes if they don't exist
+        try:
+            data_volume = client.volumes.get(data_volume_name)
+        except docker.errors.NotFound:
+            data_volume = client.volumes.create(data_volume_name)
+            flash(f'Created data volume: {data_volume_name}', 'info')
+        
+        try:
+            vpn_volume = client.volumes.get(vpn_volume_name)
+        except docker.errors.NotFound:
+            vpn_volume = client.volumes.create(vpn_volume_name)
+            flash(f'Created VPN volume: {vpn_volume_name}', 'info')
+        
+        try:
+            ssh_volume = client.volumes.get(ssh_volume_name)
+        except docker.errors.NotFound:
+            ssh_volume = client.volumes.create(ssh_volume_name)
+            flash(f'Created SSH volume: {ssh_volume_name}', 'info')
+        
+        try:
+            squid_volume = client.volumes.get(squid_volume_name)
+        except docker.errors.NotFound:
+            squid_volume = client.volumes.create(squid_volume_name)
+            flash(f'Created Squid volume: {squid_volume_name}', 'info')
+        
+        # Convert container path to host path for config directory
+        config_path = Path(config['path'])
+        config_dir_host_path = container_path_to_host_path(str(config_path.parent))
+        
+        if not config_dir_host_path:
+            flash(f'Error: Cannot mount config directory - path not in mounted volume', 'error')
+            return redirect(url_for('view_node', name=name))
+        
+        # Get log directory from config
+        log_dir_path = config['data'].get('logging', {}).get('file')
+        if log_dir_path:
+            log_dir = Path(log_dir_path).parent
+            log_dir_host_path = container_path_to_host_path(str(log_dir))
+        else:
+            # Default log directory
+            log_dir = VANTAGE6_DATA_DIR / name / 'log'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_dir_host_path = container_path_to_host_path(str(log_dir))
+        
+        # Build volume mounts similar to official vantage6 implementation
+        # Format: host_path:container_path or volume_name:container_path
+        volumes = [
+            f"{log_dir_host_path}:/mnt/log",
+            f"{data_volume.name}:/mnt/data",
+            f"{vpn_volume.name}:/mnt/vpn",
+            f"{ssh_volume.name}:/mnt/ssh",
+            f"{squid_volume.name}:/mnt/squid",
+            f"{config_dir_host_path}:/mnt/config",
+            "/var/run/docker.sock:/var/run/docker.sock"
+        ]
+        
+        # Build environment variables similar to official implementation
+        env = {
+            'DATA_VOLUME_NAME': data_volume.name,
+            'VPN_VOLUME_NAME': vpn_volume.name,
+            'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
+            'SSH_SQUID_VOLUME_NAME': squid_volume.name,
+            'PRIVATE_KEY': '/mnt/private_key.pem'
+        }
+        
+        # Add database URIs as environment variables (required for dockerized nodes)
+        # The node expects <LABEL>_DATABASE_URI environment variables
+        if config['data'].get('databases'):
+            for db in config['data'].get('databases'):
+                label = db.get('label', '').upper()
+                uri = db.get('uri', '')
+                if label and uri:
+                    env[f'{label}_DATABASE_URI'] = uri
+        
+        # Build the command to run inside the container
+        # This is the critical missing piece - the container needs a command!
+        system_folders_option = "--system" if config['type'] == 'system' else "--user"
+        cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
+        
+        # Create and start the container
+        container = client.containers.run(
+            image,
+            command=cmd,
+            volumes=volumes,
+            detach=True,
+            labels={
+                f'{APPNAME}-type': 'node',
+                'system': str(config['type'] == 'system'),
+                'name': name
+            },
+            environment=env,
+            name=container_name,
+            auto_remove=False,
+            tty=True
+        )
+        
+        flash(f'Node "{name}" started successfully', 'success')
     
     except Exception as e:
+        import sys
+        print(f"ERROR starting node: {str(e)}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc()
         flash(f'Error starting node: {str(e)}', 'error')
     
     return redirect(url_for('view_node', name=name))

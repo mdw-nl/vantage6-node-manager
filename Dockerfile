@@ -23,7 +23,9 @@ COPY templates/ templates/
 COPY static/ static/
 
 # Create directory for vantage6 configs (will be mounted)
-RUN mkdir -p /root/.config/vantage6/node
+RUN mkdir -p /root/.config/vantage6/node && \
+    mkdir -p /etc/vantage6/node && \
+    mkdir -p /data
 
 # Expose port
 EXPOSE 5000
@@ -31,6 +33,9 @@ EXPOSE 5000
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV PYTHONUNBUFFERED=1
+ENV VANTAGE6_CONFIG_DIR=/root/.config/vantage6/node
+ENV VANTAGE6_SYSTEM_CONFIG_DIR=/etc/vantage6/node
+ENV VANTAGE6_DATA_DIR=/data
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

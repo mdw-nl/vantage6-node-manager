@@ -16,11 +16,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount vantage6 config directory
       - ${HOME}/.config/vantage6:/root/.config/vantage6
+      # Mount system config directory (optional, for system-wide configurations)
+      - ${HOME}/.config/vantage6-system:/etc/vantage6/node
       # Optional: mount data directory if using local datasets
       - ${HOME}/vantage6-data:/data
     environment:
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
       - FLASK_ENV=${FLASK_ENV:-production}
+      - VANTAGE6_CONFIG_DIR=/root/.config/vantage6/node
+      - VANTAGE6_SYSTEM_CONFIG_DIR=/etc/vantage6/node
+      - VANTAGE6_DATA_DIR=/data
+      - HOST_HOME=${HOME}
     restart: unless-stopped
     networks:
       - vantage6-network
