@@ -28,7 +28,47 @@ The current version of the Node Manager works specifically with Vantage6 version
 
 ## Quick Start
 
-### Using Pre-built Docker Image (Easiest)
+### One-Command Install & Start (Fastest) 🚀
+
+Download and start the Node Manager with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/start.sh | bash
+```
+
+**What this does:**
+- ✅ Checks for Docker and Docker Compose
+- ✅ Downloads all necessary files to `~/vantage6-node-manager`
+- ✅ Creates required directories and `.env` file
+- ✅ Builds and starts the application automatically
+
+**Custom installation directory:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/start.sh | INSTALL_DIR=/path/to/custom/dir bash
+```
+
+**Access the application:**
+Open your browser and navigate to `http://localhost:5000`
+
+---
+
+### Full Setup with Git Clone (Recommended for Development)
+
+For a complete installation with git history:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/setup.sh | bash -s -- --start
+```
+
+Or install without auto-starting:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/setup.sh | bash
+```
+
+---
+
+### Using Pre-built Docker Image (Advanced)
 
 Pre-built images are automatically built and published via GitHub Actions.
 
