@@ -756,6 +756,168 @@ def delete_node(name):
     return redirect(url_for('list_nodes'))
 
 
+@app.route('/nodes/bulk/start', methods=['POST'])
+def bulk_start_nodes():
+    names = request.form.getlist('names')
+    if not names:
+        flash('No nodes selected', 'warning')
+        return redirect(url_for('list_nodes'))
+
+    configs = get_node_configs()
+    client = get_docker_client()
+    if not client:
+        return redirect(url_for('list_nodes'))
+
+    started = []
+    errors = []
+    for name in names:
+        config = next((c for c in configs if c['name'] == name), None)
+        if not config:
+            errors.append(f'{name}: not found')
+            continue
+        status = get_node_status(name, config['type'] == 'system')
+        if status == 'running':
+            errors.append(f'{name}: already running')
+            continue
+        try:
+            postfix = "system" if config['type'] == 'system' else "user"
+            container_name = f"{APPNAME}-{name}-{postfix}"
+
+            try:
+                existing = client.containers.get(container_name)
+                existing.remove()
+            except docker.errors.NotFound:
+                pass
+
+            server_url = config['data'].get('server_url')
+            api_path = config['data'].get('api_path', '/api')
+            image = None
+            if server_url:
+                version, error = get_server_version(server_url, api_path)
+                if version:
+                    image = get_node_image_for_version(version)
+            if not image:
+                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+
+            data_volume_name = f"{container_name}-vol"
+            vpn_volume_name = f"{container_name}-vpn-vol"
+            ssh_volume_name = f"{container_name}-ssh-vol"
+            squid_volume_name = f"{container_name}-squid-vol"
+
+            for vol_name in [data_volume_name, vpn_volume_name, ssh_volume_name, squid_volume_name]:
+                try:
+                    client.volumes.get(vol_name)
+                except docker.errors.NotFound:
+                    client.volumes.create(vol_name)
+
+            data_volume = client.volumes.get(data_volume_name)
+            vpn_volume = client.volumes.get(vpn_volume_name)
+            ssh_volume = client.volumes.get(ssh_volume_name)
+            squid_volume = client.volumes.get(squid_volume_name)
+
+            config_path = Path(config['path'])
+            config_dir_host_path = container_path_to_host_path(str(config_path.parent))
+            if not config_dir_host_path:
+                errors.append(f'{name}: cannot mount config directory')
+                continue
+
+            log_dir_path = config['data'].get('logging', {}).get('file')
+            if log_dir_path:
+                log_dir = Path(log_dir_path).parent
+                log_dir_host_path = container_path_to_host_path(str(log_dir))
+            else:
+                log_dir = VANTAGE6_DATA_DIR / name / 'log'
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_dir_host_path = container_path_to_host_path(str(log_dir))
+
+            volumes = [
+                f"{log_dir_host_path}:/mnt/log",
+                f"{data_volume.name}:/mnt/data",
+                f"{vpn_volume.name}:/mnt/vpn",
+                f"{ssh_volume.name}:/mnt/ssh",
+                f"{squid_volume.name}:/mnt/squid",
+                f"{config_dir_host_path}:/mnt/config",
+                "/var/run/docker.sock:/var/run/docker.sock"
+            ]
+
+            env = {
+                'DATA_VOLUME_NAME': data_volume.name,
+                'VPN_VOLUME_NAME': vpn_volume.name,
+                'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
+                'SSH_SQUID_VOLUME_NAME': squid_volume.name,
+                'PRIVATE_KEY': '/mnt/private_key.pem'
+            }
+
+            if config['data'].get('databases'):
+                for db in config['data'].get('databases'):
+                    label = db.get('label', '').upper()
+                    uri = db.get('uri', '')
+                    if label and uri:
+                        env[f'{label}_DATABASE_URI'] = uri
+
+            system_folders_option = "--system" if config['type'] == 'system' else "--user"
+            cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
+
+            client.containers.run(
+                image,
+                command=cmd,
+                volumes=volumes,
+                detach=True,
+                labels={
+                    f'{APPNAME}-type': 'node',
+                    'system': str(config['type'] == 'system'),
+                    'name': name
+                },
+                environment=env,
+                name=container_name,
+                auto_remove=False,
+                tty=True
+            )
+            started.append(name)
+        except Exception as e:
+            errors.append(f'{name}: {str(e)}')
+
+    if started:
+        flash(f'Started {len(started)} node(s): {", ".join(started)}', 'success')
+    for err in errors:
+        flash(err, 'error')
+
+    return redirect(url_for('list_nodes'))
+
+
+@app.route('/nodes/bulk/delete', methods=['POST'])
+def bulk_delete_nodes():
+    names = request.form.getlist('names')
+    if not names:
+        flash('No nodes selected', 'warning')
+        return redirect(url_for('list_nodes'))
+
+    configs = get_node_configs()
+    deleted = []
+    errors = []
+    for name in names:
+        config = next((c for c in configs if c['name'] == name), None)
+        if not config:
+            errors.append(f'{name}: not found')
+            continue
+        status = get_node_status(name, config['type'] == 'system')
+        if status == 'running':
+            errors.append(f'{name}: cannot delete a running node, stop it first')
+            continue
+        try:
+            os.remove(config['path'])
+            deleted.append(name)
+        except Exception as e:
+            errors.append(f'{name}: {str(e)}')
+
+    if deleted:
+        flash(f'Deleted {len(deleted)} node(s): {", ".join(deleted)}', 'success')
+    for err in errors:
+        flash(err, 'error')
+
+    return redirect(url_for('list_nodes'))
+
+
 @app.route('/api/nodes')
 def api_list_nodes():
     """API endpoint to list all nodes"""

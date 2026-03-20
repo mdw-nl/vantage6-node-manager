@@ -3,255 +3,198 @@
 {% block title %}{{ config.name }} - Vantage6 Node Manager{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>
-                <i class="bi bi-server"></i> {{ config.name }}
-                <span class="status-badge status-{{ config.status }}">
-                    {% if config.status == 'running' %}
-                        <i class="bi bi-play-fill"></i> Running
-                    {% elif config.status == 'stopped' %}
-                        <i class="bi bi-stop-fill"></i> Stopped
-                    {% else %}
-                        <i class="bi bi-question-circle"></i> Unknown
-                    {% endif %}
-                </span>
-            </h1>
-            <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> Back to List
-            </a>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+        <h1 class="page-title" style="margin: 0;">
+            <i class="bi bi-hdd-stack"></i> {{ config.name }}
+        </h1>
+        <span class="status-badge status-{{ config.status }}">
+            {% if config.status == 'running' %}
+                <i class="bi bi-play-fill"></i> Running
+            {% elif config.status == 'stopped' %}
+                <i class="bi bi-stop-fill"></i> Stopped
+            {% else %}
+                <i class="bi bi-question-circle"></i> Unknown
+            {% endif %}
+        </span>
+    </div>
+    <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body d-flex align-items-center gap-2 py-2">
+        {% if config.status == 'running' %}
+        <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-danger">
+                <i class="bi bi-stop-fill"></i> Stop
+            </button>
+        </form>
+        <form method="POST" action="{{ url_for('restart_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-warning">
+                <i class="bi bi-arrow-clockwise"></i> Restart
+            </button>
+        </form>
+        <button class="btn btn-sm btn-info" onclick="refreshLogs()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Logs
+        </button>
+        {% else %}
+        <form method="POST" action="{{ url_for('start_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-play-fill"></i> Start
+            </button>
+        </form>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#advancedStartModal">
+            <i class="bi bi-gear"></i> Advanced
+        </button>
+        {% endif %}
+
+        <div class="ms-auto">
+            <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
+                  onsubmit="return confirm('Delete this node configuration? This cannot be undone.');"
+                  class="d-inline">
+                <button type="submit" class="btn btn-sm btn-outline-danger" {% if config.status == 'running' %}disabled{% endif %}>
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </form>
         </div>
     </div>
 </div>
 
-<!-- Control Buttons -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <div class="btn-group me-2" role="group">
-                    {% if config.status == 'running' %}
-                    <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" style="display: inline;">
-                        <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-stop-fill"></i> Stop Node
-                        </button>
-                    </form>
-                    <form method="POST" action="{{ url_for('restart_node', name=config.name) }}" style="display: inline;">
-                        <button type="submit" class="btn btn-warning">
-                            <i class="bi bi-arrow-clockwise"></i> Restart Node
-                        </button>
-                    </form>
-                    <button class="btn btn-info" onclick="refreshLogs()">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh Logs
-                    </button>
-                    {% else %}
-                    <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;" id="startNodeForm">
-                        <button type="submit" class="btn btn-success">
-                            <i class="bi bi-play-fill"></i> Start Node (Auto-detect Version)
-                        </button>
-                    </form>
-                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#advancedStartModal">
-                        <i class="bi bi-gear"></i> Advanced Start
-                    </button>
-                    {% endif %}
-                </div>
-                
-                <div class="btn-group" role="group">
-                    <form method="POST" action="{{ url_for('delete_node', name=config.name) }}" 
-                          onsubmit="return confirm('Are you sure you want to delete this node configuration? This action cannot be undone.');"
-                          style="display: inline;">
-                        <button type="submit" class="btn btn-outline-danger" {% if config.status == 'running' %}disabled{% endif %}>
-                            <i class="bi bi-trash"></i> Delete Configuration
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row">
-    <!-- Configuration Details -->
+<div class="row g-4">
     <div class="col-lg-6">
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-info-circle"></i> Configuration Details
+                <i class="bi bi-info-circle"></i> Configuration
             </div>
             <div class="card-body">
-                <dl class="row">
-                    <dt class="col-sm-4">Name:</dt>
+                <dl class="row mb-0" style="font-size: 0.875rem;">
+                    <dt class="col-sm-4 text-secondary fw-normal">Name</dt>
                     <dd class="col-sm-8"><strong>{{ config.name }}</strong></dd>
-                    
-                    <dt class="col-sm-4">Type:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Type</dt>
                     <dd class="col-sm-8">
-                        <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">
-                            {{ config.type }}
-                        </span>
+                        <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">{{ config.type }}</span>
                     </dd>
-                    
-                    <dt class="col-sm-4">Config File:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Config</dt>
                     <dd class="col-sm-8"><code>{{ config.path }}</code></dd>
-                    
-                    <dt class="col-sm-4">Server URL:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Server</dt>
                     <dd class="col-sm-8">
                         <a href="{{ config.data.server_url }}" target="_blank">
-                            {{ config.data.server_url }}
-                            <i class="bi bi-box-arrow-up-right"></i>
+                            {{ config.data.server_url }} <i class="bi bi-arrow-up-right" style="font-size: 0.7rem;"></i>
                         </a>
                     </dd>
-                    
+
                     {% if config.data.port %}
-                    <dt class="col-sm-4">Port:</dt>
+                    <dt class="col-sm-4 text-secondary fw-normal">Port</dt>
                     <dd class="col-sm-8">{{ config.data.port }}</dd>
                     {% endif %}
-                    
-                    <dt class="col-sm-4">API Path:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">API Path</dt>
                     <dd class="col-sm-8"><code>{{ config.data.api_path }}</code></dd>
-                    
-                    <dt class="col-sm-4">Server Version:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Version</dt>
                     <dd class="col-sm-8">
                         <span id="serverVersion" class="badge bg-secondary">
                             <i class="bi bi-hourglass-split"></i> Checking...
                         </span>
-                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="checkServerVersion()" title="Check server version">
+                        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="checkServerVersion()" style="padding: 0.15rem 0.4rem; font-size: 0.7rem;">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>
                     </dd>
-                    
+
                     {% if config.data.task_dir %}
-                    <dt class="col-sm-4">Task Directory:</dt>
+                    <dt class="col-sm-4 text-secondary fw-normal">Task Dir</dt>
                     <dd class="col-sm-8"><code>{{ config.data.task_dir }}</code></dd>
                     {% endif %}
-                    
-                    <dt class="col-sm-4">Encryption:</dt>
-                    <dd class="col-sm-8">
-                        {% if config.data.encryption.enabled %}
-                            <span class="badge bg-success">Enabled</span>
-                        {% else %}
-                            <span class="badge bg-secondary">Disabled</span>
-                        {% endif %}
-                    </dd>
                 </dl>
             </div>
         </div>
 
-        <!-- Database Configuration -->
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-database"></i> Database Configuration
+                <i class="bi bi-database"></i> Databases
             </div>
-            <div class="card-body">
+            <div class="card-body p-0">
                 {% if config.data.databases %}
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Label</th>
-                                <th>Type</th>
-                                <th>URI</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for db in config.data.databases %}
-                            <tr>
-                                <td><strong>{{ db.label }}</strong></td>
-                                <td><span class="badge bg-info">{{ db.type }}</span></td>
-                                <td><code>{{ db.uri }}</code></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="table mb-0" style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Type</th>
+                            <th>URI</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for db in config.data.databases %}
+                        <tr>
+                            <td><strong>{{ db.label }}</strong></td>
+                            <td><span class="badge bg-info">{{ db.type }}</span></td>
+                            <td><code>{{ db.uri }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
-                <p class="text-muted mb-0">No databases configured.</p>
+                <div class="card-body">
+                    <p class="text-secondary mb-0" style="font-size: 0.85rem;">No databases configured.</p>
+                </div>
                 {% endif %}
             </div>
         </div>
 
-        <!-- Encryption Configuration -->
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-shield-lock"></i> Encryption Configuration
+                <i class="bi bi-shield-lock"></i> Encryption
             </div>
-            <div class="card-body">
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">Status:</dt>
-                    <dd class="col-sm-8">
-                        {% if config.data.encryption and config.data.encryption.enabled %}
-                            <span class="badge bg-success">
-                                <i class="bi bi-shield-lock-fill"></i> Enabled
-                            </span>
-                            <div class="mt-2">
-                                <small class="text-muted">
-                                    <i class="bi bi-info-circle"></i> End-to-end encryption is active. All communication between nodes is encrypted.
-                                </small>
-                            </div>
-                        {% else %}
-                            <span class="badge bg-secondary">
-                                <i class="bi bi-shield-slash"></i> Disabled
-                            </span>
-                            <div class="mt-2">
-                                <small class="text-muted">
-                                    <i class="bi bi-info-circle"></i> Communication is not encrypted. Consider enabling encryption for enhanced security.
-                                </small>
-                            </div>
-                        {% endif %}
-                    </dd>
-                    
-                    {% if config.data.encryption and config.data.encryption.enabled and config.data.encryption.private_key %}
-                    <dt class="col-sm-4">Private Key:</dt>
-                    <dd class="col-sm-8">
-                        <code>{{ config.data.encryption.private_key }}</code>
-                        <br>
-                        <small class="text-warning">
-                            <i class="bi bi-exclamation-triangle"></i> Keep this key secure and backed up. All nodes and users in your organization must use the same key.
-                        </small>
-                    </dd>
-                    {% endif %}
-                </dl>
-                
+            <div class="card-body" style="font-size: 0.875rem;">
                 {% if config.data.encryption and config.data.encryption.enabled %}
-                <div class="alert alert-info mt-3 mb-0">
-                    <h6 class="alert-heading"><i class="bi bi-lightbulb"></i> How Encryption Works</h6>
-                    <ul class="small mb-0">
-                        <li>All task inputs and results are encrypted using RSA keys</li>
-                        <li>The server cannot read encrypted communications</li>
-                        <li>Only your organization (with the private key) can decrypt messages</li>
-                        <li>Public keys are automatically shared with the server</li>
-                    </ul>
-                </div>
+                    <div class="d-flex align-items-start gap-2 mb-2">
+                        <span class="badge bg-success"><i class="bi bi-lock-fill"></i> Enabled</span>
+                        <small class="text-secondary">End-to-end encryption active</small>
+                    </div>
+                    {% if config.data.encryption.private_key %}
+                    <div class="mt-2">
+                        <small class="text-secondary fw-medium">Private key:</small>
+                        <code>{{ config.data.encryption.private_key }}</code>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="badge bg-secondary"><i class="bi bi-unlock"></i> Disabled</span>
+                        <small class="text-secondary">Communication is not encrypted</small>
+                    </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Container Information & Logs -->
     <div class="col-lg-6">
         {% if container_info %}
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-box"></i> Container Information
+                <i class="bi bi-box"></i> Container
             </div>
             <div class="card-body">
-                <dl class="row">
-                    <dt class="col-sm-4">Container ID:</dt>
+                <dl class="row mb-0" style="font-size: 0.875rem;">
+                    <dt class="col-sm-4 text-secondary fw-normal">ID</dt>
                     <dd class="col-sm-8"><code>{{ container_info.id }}</code></dd>
-                    
-                    <dt class="col-sm-4">Image:</dt>
-                    <dd class="col-sm-8"><code>{{ container_info.image }}</code></dd>
-                    
-                    <dt class="col-sm-4">Created:</dt>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Image</dt>
+                    <dd class="col-sm-8"><code style="font-size: 0.75rem;">{{ container_info.image }}</code></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Created</dt>
                     <dd class="col-sm-8">{{ container_info.created }}</dd>
-                    
+
                     {% if container_info.ports %}
-                    <dt class="col-sm-4">Ports:</dt>
+                    <dt class="col-sm-4 text-secondary fw-normal">Ports</dt>
                     <dd class="col-sm-8">
                         {% for port, bindings in container_info.ports.items() %}
-                            {{ port }}
-                            {% if bindings %}
-                                → {{ bindings[0].HostPort }}
-                            {% endif %}
+                            <code>{{ port }}</code>
+                            {% if bindings %} &rarr; <code>{{ bindings[0].HostPort }}</code>{% endif %}
                             <br>
                         {% endfor %}
                     </dd>
@@ -261,72 +204,58 @@
         </div>
         {% endif %}
 
-        <!-- Logs -->
         {% if config.status == 'running' %}
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-file-text"></i> Container Logs</span>
-                <button class="btn btn-sm btn-outline-secondary" onclick="refreshLogs()">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                <span><i class="bi bi-terminal"></i> Logs</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="refreshLogs()" style="padding: 0.15rem 0.5rem; font-size: 0.75rem;">
+                    <i class="bi bi-arrow-clockwise"></i>
                 </button>
             </div>
-            <div class="card-body">
-                <pre id="logs" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa; padding: 1rem; border-radius: 0.25rem;">
-Loading logs...
-                </pre>
+            <div class="card-body p-0">
+                <pre id="logs" style="max-height: 420px; overflow-y: auto; margin: 0; border-radius: 0 0 var(--radius) var(--radius); font-size: 0.75rem; line-height: 1.6;">Loading logs...</pre>
             </div>
         </div>
         {% else %}
         <div class="card">
             <div class="card-body text-center py-5">
-                <i class="bi bi-stop-circle" style="font-size: 3rem; color: #dee2e6;"></i>
-                <h5 class="mt-3">Node is not running</h5>
-                <p class="text-muted">Start the node to view logs</p>
+                <i class="bi bi-terminal" style="font-size: 2rem; color: var(--text-tertiary);"></i>
+                <p class="mt-2 mb-0 text-secondary" style="font-size: 0.875rem;">Start the node to view logs</p>
             </div>
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- Advanced Start Modal -->
-<div class="modal fade" id="advancedStartModal" tabindex="-1" aria-labelledby="advancedStartModalLabel" aria-hidden="true">
+<div class="modal fade" id="advancedStartModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="advancedStartModalLabel">
-                    <i class="bi bi-gear"></i> Advanced Start Options
+                <h5 class="modal-title" style="text-transform: none; letter-spacing: normal; font-size: 0.95rem;">
+                    <i class="bi bi-gear"></i> Advanced Start
                 </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="{{ url_for('start_node', name=config.name) }}">
                 <div class="modal-body">
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> By default, the node version is automatically detected from the server. 
-                        Use this option to manually specify a Docker image.
+                    <div class="alert alert-info" style="font-size: 0.85rem;">
+                        <i class="bi bi-info-circle"></i> By default the node version is auto-detected from the server.
                     </div>
-                    
                     <div class="mb-3">
                         <label for="customImage" class="form-label">Docker Image</label>
-                        <input type="text" 
-                               class="form-control" 
-                               id="customImage" 
-                               name="image" 
+                        <input type="text" class="form-control" id="customImage" name="image"
                                placeholder="harbor2.vantage6.ai/infrastructure/node:4.7.1">
-                        <div class="form-text">
-                            Leave empty to auto-detect version from server. 
-                            Example: <code>harbor2.vantage6.ai/infrastructure/node:4.7.1</code>
-                        </div>
+                        <div class="form-text">Leave empty to auto-detect.</div>
                     </div>
-                    
-                    <div class="mb-3">
-                        <strong>Server URL:</strong> {{ config.data.server_url }}<br>
-                        <strong>API Path:</strong> {{ config.data.api_path }}
+                    <div style="font-size: 0.85rem;">
+                        <span class="text-secondary">Server:</span> {{ config.data.server_url }}<br>
+                        <span class="text-secondary">API path:</span> {{ config.data.api_path }}
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="bi bi-play-fill"></i> Start Node
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-success">
+                        <i class="bi bi-play-fill"></i> Start
                     </button>
                 </div>
             </form>
@@ -355,41 +284,35 @@ Loading logs...
     function checkServerVersion() {
         const serverUrl = "{{ config.data.server_url }}";
         const apiPath = "{{ config.data.api_path }}";
-        const versionBadge = document.getElementById('serverVersion');
-        
-        // Update UI to show loading state
-        versionBadge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking...';
-        versionBadge.className = 'badge bg-secondary';
-        
-        // Make API call to check server version
+        const badge = document.getElementById('serverVersion');
+
+        badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking...';
+        badge.className = 'badge bg-secondary';
+
         fetch(`/api/server/version?server_url=${encodeURIComponent(serverUrl)}&api_path=${encodeURIComponent(apiPath)}`)
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    versionBadge.innerHTML = `<i class="bi bi-check-circle"></i> v${data.version}`;
-                    versionBadge.className = 'badge bg-success';
-                    versionBadge.title = `Recommended image: ${data.recommended_image}`;
+                    badge.innerHTML = `<i class="bi bi-check-circle"></i> v${data.version}`;
+                    badge.className = 'badge bg-success';
+                    badge.title = `Image: ${data.recommended_image}`;
                 } else {
-                    versionBadge.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Unable to detect';
-                    versionBadge.className = 'badge bg-warning';
-                    versionBadge.title = data.error || 'Could not retrieve server version';
+                    badge.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Unknown';
+                    badge.className = 'badge bg-warning';
+                    badge.title = data.error || '';
                 }
             })
-            .catch(error => {
-                versionBadge.innerHTML = '<i class="bi bi-x-circle"></i> Error';
-                versionBadge.className = 'badge bg-danger';
-                versionBadge.title = 'Error checking server version: ' + error;
+            .catch(() => {
+                badge.innerHTML = '<i class="bi bi-x-circle"></i> Error';
+                badge.className = 'badge bg-danger';
             });
     }
 
-    // Auto-refresh logs every 5 seconds if node is running
     {% if config.status == 'running' %}
     setInterval(refreshLogs, 5000);
-    // Load logs immediately
     refreshLogs();
     {% endif %}
-    
-    // Check server version on page load
+
     checkServerVersion();
 </script>
 {% endblock %}
