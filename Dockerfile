@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    curl=8.14.1-2 \
+    curl=8.19.0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
