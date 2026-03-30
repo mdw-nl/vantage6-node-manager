@@ -590,14 +590,30 @@ def start_node(name):
             "/var/run/docker.sock:/var/run/docker.sock"
         ]
         
+        # Mount private key file if encryption is enabled
+        encryption_config = config['data'].get('encryption', {})
+        if encryption_config.get('enabled') and encryption_config.get('private_key'):
+            # The private key path in config is relative to VANTAGE6_CONFIG_DIR.parent
+            # e.g. "node/private_keys/mynode_private_key.pem"
+            private_key_relative = encryption_config['private_key']
+            private_key_container_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
+            private_key_host_path = container_path_to_host_path(private_key_container_path)
+            if private_key_host_path:
+                volumes.append(f"{private_key_host_path}:/mnt/private_key.pem")
+            else:
+                flash('Warning: Could not resolve private key host path for mounting', 'warning')
+        
         # Build environment variables similar to official implementation
         env = {
             'DATA_VOLUME_NAME': data_volume.name,
             'VPN_VOLUME_NAME': vpn_volume.name,
             'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
             'SSH_SQUID_VOLUME_NAME': squid_volume.name,
-            'PRIVATE_KEY': '/mnt/private_key.pem'
         }
+        
+        # Only set PRIVATE_KEY env var when encryption is enabled
+        if encryption_config.get('enabled'):
+            env['PRIVATE_KEY'] = '/mnt/private_key.pem'
         
         # Add database URIs as environment variables (required for dockerized nodes)
         # The node expects <LABEL>_DATABASE_URI environment variables
