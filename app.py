@@ -596,12 +596,13 @@ def start_node(name):
             # The private key path in config is relative to VANTAGE6_CONFIG_DIR.parent
             # e.g. "node/private_keys/mynode_private_key.pem"
             private_key_relative = encryption_config['private_key']
-            private_key_container_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
-            private_key_host_path = container_path_to_host_path(private_key_container_path)
+            private_key_config_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
+            private_key_host_path = container_path_to_host_path(private_key_config_path)
             if private_key_host_path:
                 volumes.append(f"{private_key_host_path}:/mnt/private_key.pem")
             else:
-                flash('Warning: Could not resolve private key host path for mounting', 'warning')
+                flash(f'Warning: Could not resolve host path for private key '
+                      f'"{private_key_config_path}". Verify your encryption configuration.', 'warning')
         
         # Build environment variables similar to official implementation
         env = {
