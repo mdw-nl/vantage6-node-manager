@@ -384,6 +384,21 @@ hr {
     color: var(--amber);
 }
 
+.status-error {
+    background: var(--red-wash);
+    color: var(--red);
+}
+
+.status-starting {
+    background: var(--amber-wash);
+    color: var(--amber);
+}
+
+.status-reconnecting {
+    background: var(--amber-wash);
+    color: var(--amber);
+}
+
 
 /* ─── Buttons ─── */
 

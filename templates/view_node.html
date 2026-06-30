@@ -8,7 +8,10 @@
         <h1 class="page-title" style="margin: 0;">
             <i class="bi bi-hdd-stack"></i> {{ config.name }}
         </h1>
-        <span class="status-badge status-{{ config.status }}">
+        <span class="status-badge status-{{ config.status }}"
+              id="health-badge-{{ config.name }}"
+              data-node-name="{{ config.name }}"
+              title="">
             {% if config.status == 'running' %}
                 <i class="bi bi-play-fill"></i> Running
             {% elif config.status == 'stopped' %}
@@ -314,5 +317,39 @@
     {% endif %}
 
     checkServerVersion();
+
+    const HEALTH_ICONS = {
+        online:       '<i class="bi bi-play-fill"></i> Running',
+        starting:     '<i class="bi bi-hourglass-split"></i> Starting',
+        reconnecting: '<i class="bi bi-arrow-repeat"></i> Reconnecting',
+        error:        '<i class="bi bi-exclamation-triangle-fill"></i> Error',
+        stopped:      '<i class="bi bi-stop-fill"></i> Stopped',
+        unknown:      '<i class="bi bi-question-circle"></i> Unknown',
+    };
+
+    const HEALTH_CLASSES = {
+        online:       'status-running',
+        starting:     'status-starting',
+        reconnecting: 'status-reconnecting',
+        error:        'status-error',
+        stopped:      'status-stopped',
+        unknown:      'status-unknown',
+    };
+
+    function pollHealth() {
+        const badge = document.querySelector('[data-node-name]');
+        if (!badge) return;
+        fetch(`/api/nodes/${badge.dataset.nodeName}/health`)
+            .then(r => r.json())
+            .then(data => {
+                badge.className = 'status-badge ' + (HEALTH_CLASSES[data.status] || 'status-unknown');
+                badge.innerHTML = HEALTH_ICONS[data.status] || HEALTH_ICONS.unknown;
+                badge.title = data.message || '';
+            })
+            .catch(() => {});
+    }
+
+    pollHealth();
+    setInterval(pollHealth, 15000);
 </script>
 {% endblock %}

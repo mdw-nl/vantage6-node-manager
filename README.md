@@ -421,7 +421,8 @@ Future enhancements:
 - [ ] User authentication and authorization
 - [ ] Multi-user support with role-based access
 - [ ] Advanced log filtering and search
-- [ ] Node health monitoring and alerts
+- [x] Node health monitoring
+- [ ] Health alerts / notifications
 - [ ] Backup and restore configurations
 - [ ] Algorithm store integration
 - [ ] Task execution monitoring

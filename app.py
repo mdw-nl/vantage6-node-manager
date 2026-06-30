@@ -259,19 +259,80 @@ def get_node_status(node_name, system_folders=False):
     """Check if a specific node is running"""
     postfix = "system" if system_folders else "user"
     container_name = f"{APPNAME}-{node_name}-{postfix}"
-    
+
     client = get_docker_client()
     if not client:
         return 'unknown'
-    
+
     try:
         container = client.containers.get(container_name)
-        return container.status
+        return 'running' if container.status == 'running' else 'stopped'
     except docker.errors.NotFound:
         return 'stopped'
     except Exception as e:
         print(f"Error checking node status: {e}")
         return 'error'
+
+
+def get_node_health_status(node_name, system_folders=False):
+    """
+    Derive a meaningful health status from the node container logs.
+
+    Scans the last 100 log lines from bottom to top and returns the first
+    matching status. The container must be running — if it is not, returns
+    'stopped' immediately.
+
+    Returns a dict with 'status' and 'message' keys.
+    """
+    import re
+
+    postfix = "system" if system_folders else "user"
+    container_name = f"{APPNAME}-{node_name}-{postfix}"
+
+    client = get_docker_client()
+    if not client:
+        return {'status': 'unknown', 'message': 'Docker not available'}
+
+    try:
+        container = client.containers.get(container_name)
+    except docker.errors.NotFound:
+        return {'status': 'stopped', 'message': 'Container not running'}
+    except Exception as e:
+        return {'status': 'unknown', 'message': str(e)}
+
+    if container.status != 'running':
+        return {'status': 'stopped', 'message': f'Container is {container.status}'}
+
+    try:
+        raw_logs = container.logs(tail=100).decode('utf-8', errors='replace')
+    except Exception as e:
+        return {'status': 'unknown', 'message': f'Could not read logs: {str(e)}'}
+
+    # Strip ANSI colour codes
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    lines = [ansi_escape.sub('', line) for line in raw_logs.splitlines()]
+
+    # Patterns checked in priority order — first match from the bottom wins
+    patterns = [
+        ('error',        'Unable to authenticate. Exiting'),
+        ('error',        'Authentication failed'),
+        ('error',        'API key is not recognized'),
+        ('error',        'Could not connect to the server'),
+        ('online',       'Waiting for new tasks'),
+        ('online',       '(Re)Connected to the /tasks namespace'),
+        ('online',       'Successfully authenticated'),
+        ('reconnecting', 'Disconnected from the server'),
+        ('starting',     'Connecting server:'),
+    ]
+
+    for line in reversed(lines):
+        for status, pattern in patterns:
+            if pattern in line:
+                # Use the actual log line as the message, stripped of the prefix
+                message = line.split(' - ')[-1].strip() if ' - ' in line else line.strip()
+                return {'status': status, 'message': message}
+
+    return {'status': 'starting', 'message': 'Node is starting up'}
 
 
 @app.route('/')
@@ -946,17 +1007,18 @@ def api_list_nodes():
     return jsonify(configs)
 
 
-@app.route('/api/nodes/<name>/status')
-def api_node_status(name):
-    """API endpoint to get node status"""
+@app.route('/api/nodes/<name>/health')
+def api_node_health(name):
+    """API endpoint to get the real health status derived from container logs"""
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
-    
+
     if not config:
         return jsonify({'error': 'Node not found'}), 404
-    
-    status = get_node_status(name, config['type'] == 'system')
-    return jsonify({'name': name, 'status': status})
+
+    health = get_node_health_status(name, config['type'] == 'system')
+    health['name'] = name
+    return jsonify(health)
 
 
 @app.route('/api/server/version')
