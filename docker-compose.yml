@@ -19,9 +19,13 @@ services:
       - ${HOME}/.config/vantage6-system:/etc/vantage6/node
       # Optional: mount data directory if using local datasets
       - ${HOME}/vantage6-data:/data
+      # Mount source code for hot reloading
+      - ./app.py:/app/app.py
+      - ./templates:/app/templates
+      - ./static:/app/static
     environment:
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
-      - FLASK_ENV=${FLASK_ENV:-production}
+      - FLASK_ENV=${FLASK_ENV:-development}
       - VANTAGE6_CONFIG_DIR=/root/.config/vantage6/node
       - VANTAGE6_SYSTEM_CONFIG_DIR=/etc/vantage6/node
       - VANTAGE6_DATA_DIR=/data
