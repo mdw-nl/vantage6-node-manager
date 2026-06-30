@@ -644,7 +644,8 @@ def start_node(name):
             environment=env,
             name=container_name,
             auto_remove=False,
-            tty=True
+            tty=True,
+            extra_hosts={"host.docker.internal": "host-gateway"}
         )
         
         flash(f'Node "{name}" started successfully', 'success')
