@@ -420,12 +420,12 @@ For more information about the branding implementation, see [docs/BRANDING.md](d
 Future enhancements:
 - [ ] User authentication and authorization
 - [ ] Multi-user support with role-based access
-- [ ] Advanced log filtering and search
+- [x] Advanced log filtering and search
 - [x] Node health monitoring
 - [ ] Health alerts / notifications
 - [x] Backup and restore configurations
 - [ ] Algorithm store integration
-- [ ] Task execution monitoring
+- [x] Task execution monitoring
 - [ ] WebSocket support for real-time updates
 - [ ] Export/import node configurations
 - [x] Batch operations on multiple nodes
