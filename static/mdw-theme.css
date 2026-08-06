@@ -65,6 +65,8 @@ h5 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 pre, code {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.8rem;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 code {

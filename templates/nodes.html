@@ -7,9 +7,14 @@
     <h1 class="page-title">
         <i class="bi bi-hdd-stack"></i> Nodes
     </h1>
-    <a href="{{ url_for('new_node') }}" class="btn btn-primary">
-        <i class="bi bi-plus"></i> New Node
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('import_node') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-upload"></i> Import Node
+        </a>
+        <a href="{{ url_for('new_node') }}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> New Node
+        </a>
+    </div>
 </div>
 
 {% if configs %}
@@ -137,8 +142,8 @@
                             </div>
                             <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
                                   class="d-inline ms-1"
-                                  onsubmit="return confirm('Delete node \'{{ config.name }}\'? This cannot be undone.');">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete" {% if config.status == 'running' %}disabled{% endif %}>
+                                  onsubmit="return confirm({% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %});">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </form>

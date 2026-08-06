@@ -54,10 +54,13 @@
         {% endif %}
 
         <div class="ms-auto">
+            <a href="{{ url_for('export_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download"></i> Export
+            </a>
             <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
-                  onsubmit="return confirm('Delete this node configuration? This cannot be undone.');"
+                  onsubmit="return confirm({% if config.status == 'running' %}'This node is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete this node configuration? This cannot be undone. Consider exporting a backup first.'{% endif %});"
                   class="d-inline">
-                <button type="submit" class="btn btn-sm btn-outline-danger" {% if config.status == 'running' %}disabled{% endif %}>
+                <button type="submit" class="btn btn-sm btn-outline-danger">
                     <i class="bi bi-trash"></i> Delete
                 </button>
             </form>

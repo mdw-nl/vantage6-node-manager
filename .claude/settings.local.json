@@ -60,7 +60,31 @@
       "Bash(curl -s -X POST http://localhost:5000/nodes/alpha/start -o /dev/null)",
       "Bash(curl -s -c /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/c.txt -X POST http://localhost:5000/nodes/alpha/stop -o /dev/null)",
       "Bash(curl -s -b /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/c.txt -X POST http://localhost:5000/nodes/alpha/start -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/out.html -w \"%{http_code}\\\\n\")",
-      "Bash(curl -s -b /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/c.txt http://localhost:5000/nodes/alpha)"
+      "Bash(curl -s -b /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/c.txt http://localhost:5000/nodes/alpha)",
+      "Bash(curl -s -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/beta_backup.zip -w \"http_code=%{http_code} content_type=%{content_type}\\\\n\" http://localhost:5000/nodes/beta/export)",
+      "Bash(unzip -l /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/beta_backup.zip)",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/beta/delete -o /dev/null)",
+      "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/beta_backup.zip\" http://localhost:5000/nodes/import -w \"http_code=%{http_code}\\\\n\" -D -)",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/new -F name=exporttest -F server_url=http://host.docker.internal -F api_key=testkey123 -F port=5070 -F api_path=/api -F task_dir=/mnt/data/tasks -F db_label=default -F db_uri=/data/exporttest.csv -F db_type=csv -F encryption_enabled=on -F key_source=upload -F private_key_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/test_key.pem -o /dev/null -w 'http_code=%{http_code}\\\\n')",
+      "Bash(curl -s -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/exporttest_backup.zip http://localhost:5000/nodes/exporttest/export)",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/exporttest/delete -o /dev/null)",
+      "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/exporttest_backup.zip\" http://localhost:5000/nodes/import -o /dev/null -w \"http_code=%{http_code}\\\\n\")",
+      "Bash(echo \"diff exit=$?\")",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/exporttest/start -o /dev/null)",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/exporttest/stop -o /dev/null)",
+      "Bash(rm -f /home/sinse/.config/vantage6/node/private_keys/exporttest_test_key.pem /home/sinse/.config/vantage6/node/private_keys/exporttest_private_key.pem)",
+      "Bash(docker exec *)",
+      "Bash(awk '{ print length, $0 }')",
+      "Bash(curl -s http://localhost:5000/nodes/gamma -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/gamma.html)",
+      "Bash(curl -s http://localhost:5000/nodes/beta -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/beta_page.html)",
+      "Bash(curl -s -D - -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/gamma_export.yaml http://localhost:5000/nodes/gamma/export)",
+      "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/importtest.yaml\" http://localhost:5000/nodes/import -D - -o /dev/null)",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/gamma/delete -D - -o /dev/null)",
+      "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/gamma_export.yaml\" http://localhost:5000/nodes/import -o /dev/null -w \"http_code=%{http_code}\\\\n\")",
+      "Bash(curl -s -X POST http://localhost:5000/nodes/importtest/delete -o /dev/null)",
+      "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/gamma.yaml\" http://localhost:5000/nodes/import -o /dev/null -w \"http_code=%{http_code}\\\\n\")",
+      "Read(//mnt/wslg/distro/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/**)",
+      "Bash(grep *)"
     ]
   }
 }

@@ -3,13 +3,15 @@ Vantage6 Node Manager Web Application
 A Flask-based web interface for managing vantage6 nodes
 """
 import os
+import io
 import yaml
 import docker
 import requests
 import shutil
 import base64
+import zipfile
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -878,21 +880,160 @@ def delete_node(name):
     if not config:
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('list_nodes'))
-    
-    # Check if node is running
-    status = get_node_status(name, config['type'] == 'system')
-    if status == 'running':
-        flash(f'Cannot delete running node. Please stop it first.', 'error')
-        return redirect(url_for('view_node', name=name))
-    
+
     try:
-        # Delete configuration file
+        # Delete configuration file. This only removes the config from the
+        # node manager - if the node's container is still running, it is
+        # left untouched and keeps running unmanaged.
         os.remove(config['path'])
         flash(f'Node configuration "{name}" deleted successfully', 'success')
     except Exception as e:
         flash(f'Error deleting configuration: {str(e)}', 'error')
-    
+
     return redirect(url_for('list_nodes'))
+
+
+@app.route('/nodes/<name>/export')
+def export_node(name):
+    """
+    Export a node's config as a download. Plain .yaml when there's nothing
+    else to bundle; a .zip (config + private key) only when encryption is
+    enabled and a key file needs to travel with it.
+    """
+    configs = get_node_configs()
+    config = next((c for c in configs if c['name'] == name), None)
+
+    if not config:
+        flash(f'Node configuration "{name}" not found', 'error')
+        return redirect(url_for('list_nodes'))
+
+    encryption_config = config['data'].get('encryption', {}) or {}
+    private_key_path = None
+    if encryption_config.get('enabled') and encryption_config.get('private_key'):
+        candidate = VANTAGE6_CONFIG_DIR.parent / encryption_config['private_key']
+        if candidate.exists():
+            private_key_path = candidate
+        else:
+            flash(f'Warning: private key file not found at "{candidate}", '
+                  f'exported backup does not include it', 'warning')
+
+    if not private_key_path:
+        return send_file(
+            config['path'],
+            mimetype='application/x-yaml',
+            as_attachment=True,
+            download_name=f'{name}.yaml'
+        )
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.write(config['path'], arcname=f'{name}.yaml')
+        zf.write(private_key_path, arcname='private_key.pem')
+
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'{name}_backup.zip'
+    )
+
+
+def _write_imported_config(name, config_data):
+    """Shared final step for import_node: refuse name collisions, write the yaml"""
+    existing_configs = get_node_configs()
+    if any(c['name'] == name for c in existing_configs):
+        return f'A node named "{name}" already exists. Rename or delete it first, then retry the import.'
+
+    config_file = VANTAGE6_CONFIG_DIR / f'{name}.yaml'
+    with open(config_file, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False)
+    return None
+
+
+@app.route('/nodes/import', methods=['GET', 'POST'])
+def import_node():
+    """Import a node config from a previously exported .yaml file or .zip backup"""
+    if request.method == 'GET':
+        return render_template('import_node.html')
+
+    upload = request.files.get('backup_file')
+    if not upload or not upload.filename:
+        flash('No backup file selected', 'error')
+        return redirect(url_for('import_node'))
+
+    filename = upload.filename.lower()
+
+    try:
+        if filename.endswith('.yaml') or filename.endswith('.yml'):
+            name = Path(upload.filename).stem
+            config_data = yaml.safe_load(upload.stream.read())
+
+            encryption_config = config_data.get('encryption', {}) or {}
+            if encryption_config.get('enabled'):
+                flash('Warning: config has encryption enabled but a plain .yaml import has no '
+                      'private key to go with it. Encryption has been disabled for the imported '
+                      'node - re-export as a .zip backup if a key needs to travel with it.',
+                      'warning')
+                config_data['encryption'] = {'enabled': False, 'private_key': None}
+
+            error = _write_imported_config(name, config_data)
+            if error:
+                flash(error, 'error')
+                return redirect(url_for('import_node'))
+
+        elif filename.endswith('.zip'):
+            with zipfile.ZipFile(upload.stream) as zf:
+                yaml_names = [n for n in zf.namelist() if n.endswith('.yaml')]
+                if len(yaml_names) != 1:
+                    flash('Backup zip must contain exactly one node config (.yaml) file', 'error')
+                    return redirect(url_for('import_node'))
+
+                yaml_entry = yaml_names[0]
+                name = Path(yaml_entry).stem
+                config_data = yaml.safe_load(zf.read(yaml_entry))
+
+                encryption_config = config_data.get('encryption', {}) or {}
+                if encryption_config.get('enabled') and 'private_key.pem' in zf.namelist():
+                    keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
+                    keys_dir.mkdir(parents=True, exist_ok=True)
+
+                    key_filename = f'{name}_private_key.pem'
+                    key_path = keys_dir / key_filename
+                    key_path.write_bytes(zf.read('private_key.pem'))
+                    os.chmod(str(key_path), 0o600)
+
+                    # Store relative path in config for portability, matching how new_node saves it
+                    config_data['encryption']['private_key'] = str(
+                        key_path.relative_to(VANTAGE6_CONFIG_DIR.parent)
+                    )
+                elif encryption_config.get('enabled'):
+                    flash('Warning: config has encryption enabled but the backup did not include '
+                          'a private key file. Encryption has been disabled for the imported node.',
+                          'warning')
+                    config_data['encryption'] = {'enabled': False, 'private_key': None}
+
+                error = _write_imported_config(name, config_data)
+                if error:
+                    flash(error, 'error')
+                    return redirect(url_for('import_node'))
+
+        else:
+            flash('Unsupported file type. Upload a .yaml file or a .zip backup.', 'error')
+            return redirect(url_for('import_node'))
+
+        flash(f'Node configuration "{name}" imported successfully', 'success')
+        return redirect(url_for('view_node', name=name))
+
+    except zipfile.BadZipFile:
+        flash('Uploaded file is not a valid backup zip', 'error')
+        return redirect(url_for('import_node'))
+    except yaml.YAMLError:
+        flash('Uploaded file is not valid YAML', 'error')
+        return redirect(url_for('import_node'))
+    except Exception as e:
+        flash(f'Error importing configuration: {str(e)}', 'error')
+        return redirect(url_for('import_node'))
 
 
 @app.route('/nodes/bulk/start', methods=['POST'])
@@ -1046,10 +1187,6 @@ def bulk_delete_nodes():
         config = next((c for c in configs if c['name'] == name), None)
         if not config:
             errors.append(f'{name}: not found')
-            continue
-        status = get_node_status(name, config['type'] == 'system')
-        if status == 'running':
-            errors.append(f'{name}: cannot delete a running node, stop it first')
             continue
         try:
             os.remove(config['path'])
