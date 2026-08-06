@@ -1173,6 +1173,45 @@ def bulk_start_nodes():
     return redirect(url_for('list_nodes'))
 
 
+@app.route('/nodes/bulk/stop', methods=['POST'])
+def bulk_stop_nodes():
+    names = request.form.getlist('names')
+    if not names:
+        flash('No nodes selected', 'warning')
+        return redirect(url_for('list_nodes'))
+
+    configs = get_node_configs()
+    client = get_docker_client()
+    if not client:
+        return redirect(url_for('list_nodes'))
+
+    stopped = []
+    errors = []
+    for name in names:
+        config = next((c for c in configs if c['name'] == name), None)
+        if not config:
+            errors.append(f'{name}: not found')
+            continue
+        try:
+            postfix = "system" if config['type'] == 'system' else "user"
+            container_name = f"{APPNAME}-{name}-{postfix}"
+
+            container = client.containers.get(container_name)
+            container.stop()
+            stopped.append(name)
+        except docker.errors.NotFound:
+            errors.append(f'{name}: not running')
+        except Exception as e:
+            errors.append(f'{name}: {str(e)}')
+
+    if stopped:
+        flash(f'Stopped {len(stopped)} node(s): {", ".join(stopped)}', 'success')
+    for err in errors:
+        flash(err, 'error')
+
+    return redirect(url_for('list_nodes'))
+
+
 @app.route('/nodes/bulk/delete', methods=['POST'])
 def bulk_delete_nodes():
     names = request.form.getlist('names')

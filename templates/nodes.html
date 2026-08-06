@@ -24,6 +24,9 @@
         <button type="button" class="btn btn-sm btn-success" onclick="bulkStart()">
             <i class="bi bi-play-fill"></i> Start
         </button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="bulkStop()">
+            <i class="bi bi-stop-fill"></i> Stop
+        </button>
         <button type="button" class="btn btn-sm btn-outline-danger" style="border-color: rgba(255,255,255,.2); color: #ff7b72;" onclick="bulkDelete()">
             <i class="bi bi-trash"></i> Delete
         </button>
@@ -157,6 +160,7 @@
 </div>
 
 <form id="bulkStartForm" method="POST" action="{{ url_for('bulk_start_nodes') }}" style="display:none;"></form>
+<form id="bulkStopForm" method="POST" action="{{ url_for('bulk_stop_nodes') }}" style="display:none;"></form>
 <form id="bulkDeleteForm" method="POST" action="{{ url_for('bulk_delete_nodes') }}" style="display:none;"></form>
 
 {% else %}
@@ -215,6 +219,13 @@
         if (names.length === 0) return;
         if (!confirm('Start ' + names.length + ' selected node(s)?')) return;
         submitBulkForm('bulkStartForm', names);
+    }
+
+    function bulkStop() {
+        const names = getCheckedNames();
+        if (names.length === 0) return;
+        if (!confirm('Stop ' + names.length + ' selected node(s)?')) return;
+        submitBulkForm('bulkStopForm', names);
     }
 
     function bulkDelete() {

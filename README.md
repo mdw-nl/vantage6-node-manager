@@ -423,9 +423,9 @@ Future enhancements:
 - [ ] Advanced log filtering and search
 - [x] Node health monitoring
 - [ ] Health alerts / notifications
-- [ ] Backup and restore configurations
+- [x] Backup and restore configurations
 - [ ] Algorithm store integration
 - [ ] Task execution monitoring
 - [ ] WebSocket support for real-time updates
 - [ ] Export/import node configurations
-- [ ] Batch operations on multiple nodes
+- [x] Batch operations on multiple nodes
