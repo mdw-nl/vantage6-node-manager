@@ -287,12 +287,13 @@
     function checkServerVersion() {
         const serverUrl = "{{ config.data.server_url }}";
         const apiPath = "{{ config.data.api_path }}";
+        const port = "{{ config.data.port or '' }}";
         const badge = document.getElementById('serverVersion');
 
         badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking...';
         badge.className = 'badge bg-secondary';
 
-        fetch(`/api/server/version?server_url=${encodeURIComponent(serverUrl)}&api_path=${encodeURIComponent(apiPath)}`)
+        fetch(`/api/server/version?server_url=${encodeURIComponent(serverUrl)}&api_path=${encodeURIComponent(apiPath)}&port=${encodeURIComponent(port)}`)
             .then(r => r.json())
             .then(data => {
                 if (data.success) {

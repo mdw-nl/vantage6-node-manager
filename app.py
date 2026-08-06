@@ -82,27 +82,31 @@ def get_docker_client():
         return None
 
 
-def get_server_version(server_url, api_path='/api'):
+def get_server_version(server_url, api_path='/api', port=None):
     """
     Get the Vantage6 server version from the server's version endpoint.
-    
+
     Args:
         server_url: Base URL of the Vantage6 server
         api_path: API path (default: '/api')
-    
+        port: Server port (optional). The node config stores this separately
+              from server_url, so it must be injected into the URL here.
+
     Returns:
         tuple: (version_string, error_message)
                Returns (None, error_msg) if version cannot be retrieved
     """
     try:
-        # Construct the version endpoint URL
-        if not server_url.endswith('/'):
-            server_url += '/'
-        
+        # Strip any trailing slash so we can consistently append :port and the path
+        base_url = server_url.rstrip('/')
+
+        if port:
+            base_url = f"{base_url}:{port}"
+
         # Remove leading slash from api_path if present
         api_path = api_path.lstrip('/')
-        
-        version_url = f"{server_url}{api_path}/version"
+
+        version_url = f"{base_url}/{api_path}/version"
         
         # Make request to version endpoint with timeout
         response = requests.get(version_url, timeout=5)
@@ -167,6 +171,46 @@ def generate_rsa_key_pair():
     except Exception as e:
         print(f"Error generating RSA key pair: {e}")
         return None, None
+
+
+def find_local_node_image(client, version=None):
+    """
+    Find a vantage6 node image that is already pulled on this Docker host.
+
+    Deployments can be pinned to a fork/registry (e.g. ghcr.io/mdw-nl/...) whose
+    tags don't line up 1:1 with the server-reported version (pre-release suffixes
+    like "-rc8"), and the registry derived from the version string may not even
+    be reachable. An image that is already local is known to work in this
+    environment, so it's a safer default than guessing a registry/tag.
+
+    Args:
+        client: Docker client
+        version: Optional server version string to prefer a matching tag
+
+    Returns:
+        str or None: a local image tag to use, or None if no node image is local
+    """
+    try:
+        candidates = []
+        for img in client.images.list():
+            for tag in img.tags:
+                if '/infrastructure/node' in tag:
+                    candidates.append((img.attrs.get('Created', ''), tag))
+    except Exception:
+        return None
+
+    if not candidates:
+        return None
+
+    if version:
+        for _, tag in candidates:
+            tag_version = tag.rsplit(':', 1)[-1]
+            if tag_version == version or tag_version.startswith(f"{version}-") or tag_version.startswith(f"{version}."):
+                return tag
+
+    # No version match (or no version given): use the most recently pulled image
+    candidates.sort(reverse=True)
+    return candidates[0][1]
 
 
 def get_node_image_for_version(version):
@@ -555,38 +599,54 @@ def start_node(name):
         container_name = f"{APPNAME}-{name}-{postfix}"
         
         # Check if already running
+        previous_image = None
         try:
             existing = client.containers.get(container_name)
             if existing.status == 'running':
                 flash(f'Node "{name}" is already running', 'warning')
                 return redirect(url_for('view_node', name=name))
             else:
+                # Remember the image this node was last running, so a restart
+                # doesn't depend on re-detecting/re-pulling an image (which may
+                # live in a registry that isn't reachable from this host)
+                if existing.image and existing.image.tags:
+                    previous_image = existing.image.tags[0]
                 # Remove the existing stopped container and recreate it
                 existing.remove()
                 flash(f'Removed existing stopped container, creating new one...', 'info')
         except docker.errors.NotFound:
             # Container doesn't exist, will create below
             pass
-        
+
         # Determine image version from server if not specified
-        image = request.form.get('image')
-        
+        image = request.form.get('image') or previous_image
+        if image and image == previous_image:
+            flash(f'Reusing previously used node image: {image}', 'info')
+
         if not image:
             # Get server version to determine appropriate node image
             server_url = config['data'].get('server_url')
             api_path = config['data'].get('api_path', '/api')
-            
+            port = config['data'].get('port')
+
+            version, error = (None, 'No server URL configured')
             if server_url:
-                version, error = get_server_version(server_url, api_path)
-                if version:
+                version, error = get_server_version(server_url, api_path, port)
+
+            if version:
+                image = find_local_node_image(client, version)
+                if image:
+                    flash(f'Using locally available node image matching server version {version}: {image}', 'info')
+                else:
                     image = get_node_image_for_version(version)
                     flash(f'Using node image for server version {version}', 'info')
+            else:
+                image = find_local_node_image(client)
+                if image:
+                    flash(f'Could not detect server version ({error}). Using locally available node image: {image}', 'warning')
                 else:
                     image = 'harbor2.vantage6.ai/infrastructure/node:latest'
                     flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
-            else:
-                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
-                flash('No server URL configured. Using latest node image.', 'warning')
         
         # Create Docker volumes (similar to official implementation)
         # These volumes persist data, VPN config, SSH config, and Squid proxy config
@@ -862,18 +922,26 @@ def bulk_start_nodes():
             postfix = "system" if config['type'] == 'system' else "user"
             container_name = f"{APPNAME}-{name}-{postfix}"
 
+            previous_image = None
             try:
                 existing = client.containers.get(container_name)
+                if existing.image and existing.image.tags:
+                    previous_image = existing.image.tags[0]
                 existing.remove()
             except docker.errors.NotFound:
                 pass
 
-            server_url = config['data'].get('server_url')
-            api_path = config['data'].get('api_path', '/api')
-            image = None
-            if server_url:
-                version, error = get_server_version(server_url, api_path)
-                if version:
+            image = previous_image
+
+            if not image:
+                server_url = config['data'].get('server_url')
+                api_path = config['data'].get('api_path', '/api')
+                port = config['data'].get('port')
+                version = None
+                if server_url:
+                    version, error = get_server_version(server_url, api_path, port)
+                image = find_local_node_image(client, version)
+                if not image and version:
                     image = get_node_image_for_version(version)
             if not image:
                 image = 'harbor2.vantage6.ai/infrastructure/node:latest'
@@ -1026,11 +1094,12 @@ def api_server_version():
     """API endpoint to check a Vantage6 server's version"""
     server_url = request.args.get('server_url')
     api_path = request.args.get('api_path', '/api')
-    
+    port = request.args.get('port')
+
     if not server_url:
         return jsonify({'error': 'server_url parameter is required'}), 400
-    
-    version, error = get_server_version(server_url, api_path)
+
+    version, error = get_server_version(server_url, api_path, port)
     
     if error:
         return jsonify({
