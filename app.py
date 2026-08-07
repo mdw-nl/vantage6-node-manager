@@ -75,6 +75,58 @@ def container_path_to_host_path(container_path):
         return None
 
 
+# Database types whose "uri" is a local file/folder rather than a connection
+# string (matches vantage6.cli.node.start.FILE_BASED_DATABASE_TYPES)
+FILE_BASED_DATABASE_TYPES = {'folder', 'csv', 'parquet', 'excel'}
+
+
+def build_database_env_and_volumes(databases):
+    """
+    Build the <LABEL>_DATABASE_URI environment variables and volume mounts for
+    a node's configured databases, following the same approach as the official
+    `v6 node start` CLI.
+
+    For file-based databases (csv/folder/parquet/excel), the file must be
+    bind-mounted into the node container at /mnt/<label><suffix>, with the env
+    var set to just the filename. The node resolves the real host path for
+    algorithm containers by inspecting its own mount table; if the file is
+    never mounted into the node container at all (previously: the raw "uri"
+    was passed as the env var with no accompanying mount), algorithm
+    containers fail with FileNotFoundError when they try to read it, since
+    that "uri" doesn't correspond to anything inside the node container -
+    the node's own filesystem view is unaffected by the Node Manager's own
+    container mounts.
+
+    The "uri" is used directly as the bind-mount source (a host path), not
+    translated via container_path_to_host_path() - unlike the config/log
+    dirs, it is not a path derived from paths inside the Node Manager's own
+    container, it's an opaque host path supplied by the user for Docker
+    itself to resolve.
+
+    Returns:
+        (env, volumes): dict of env vars, list of "source:target[:mode]" volume strings
+    """
+    env = {}
+    volumes = []
+    for db in databases or []:
+        label = db.get('label', '')
+        uri = db.get('uri', '')
+        db_type = (db.get('type') or '').lower()
+        if not label or not uri:
+            continue
+
+        label_upper = label.upper()
+        if db_type in FILE_BASED_DATABASE_TYPES:
+            suffix = Path(uri).suffix
+            env[f'{label_upper}_DATABASE_URI'] = f'{label}{suffix}'
+            mount_mode = str(db.get('mount_mode', 'copy')).lower()
+            mode_suffix = ':ro' if mount_mode == 'ro' else ''
+            volumes.append(f'{uri}:/mnt/{label}{suffix}{mode_suffix}')
+        else:
+            env[f'{label_upper}_DATABASE_URI'] = uri
+    return env, volumes
+
+
 def get_docker_client():
     """Get Docker client instance"""
     try:
@@ -429,7 +481,11 @@ def new_node():
             db_label = request.form.get('db_label', 'default')
             db_uri = request.form.get('db_uri')
             db_type = request.form.get('db_type', 'csv')
-            
+
+            # Whether the node may run algorithm images that aren't pullable from a
+            # registry (e.g. local `docker build` images used in development)
+            allow_local_images = request.form.get('allow_local_images') == 'on'
+
             # Encryption configuration
             encryption_enabled = request.form.get('encryption_enabled') == 'on'
             private_key_path = None
@@ -526,6 +582,10 @@ def new_node():
                 'encryption': {
                     'enabled': encryption_enabled,
                     'private_key': private_key_path if encryption_enabled else None
+                },
+                'policies': {
+                    'allowed_algorithms': [],
+                    'require_algorithm_pull': not allow_local_images
                 }
             }
             
@@ -738,16 +798,14 @@ def start_node(name):
         # Only set PRIVATE_KEY env var when encryption is enabled
         if encryption_config.get('enabled'):
             env['PRIVATE_KEY'] = '/mnt/private_key.pem'
-        
-        # Add database URIs as environment variables (required for dockerized nodes)
-        # The node expects <LABEL>_DATABASE_URI environment variables
-        if config['data'].get('databases'):
-            for db in config['data'].get('databases'):
-                label = db.get('label', '').upper()
-                uri = db.get('uri', '')
-                if label and uri:
-                    env[f'{label}_DATABASE_URI'] = uri
-        
+
+        # Add database URIs as environment variables (required for dockerized nodes).
+        # File-based databases also need to be bind-mounted into the node container -
+        # see build_database_env_and_volumes() for why.
+        db_env, db_volumes = build_database_env_and_volumes(config['data'].get('databases'))
+        env.update(db_env)
+        volumes.extend(db_volumes)
+
         # Build the command to run inside the container
         # This is the critical missing piece - the container needs a command!
         system_folders_option = "--system" if config['type'] == 'system' else "--user"
@@ -1136,12 +1194,9 @@ def bulk_start_nodes():
                 'PRIVATE_KEY': '/mnt/private_key.pem'
             }
 
-            if config['data'].get('databases'):
-                for db in config['data'].get('databases'):
-                    label = db.get('label', '').upper()
-                    uri = db.get('uri', '')
-                    if label and uri:
-                        env[f'{label}_DATABASE_URI'] = uri
+            db_env, db_volumes = build_database_env_and_volumes(config['data'].get('databases'))
+            env.update(db_env)
+            volumes.extend(db_volumes)
 
             system_folders_option = "--system" if config['type'] == 'system' else "--user"
             cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"

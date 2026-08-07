@@ -84,7 +84,22 @@
       "Bash(curl -s -X POST http://localhost:5000/nodes/importtest/delete -o /dev/null)",
       "Bash(curl -s -X POST -F \"backup_file=@/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/gamma.yaml\" http://localhost:5000/nodes/import -o /dev/null -w \"http_code=%{http_code}\\\\n\")",
       "Read(//mnt/wslg/distro/tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/a65c98cf-a6f7-4707-9283-3dee53b03d43/scratchpad/**)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(find / -path /proc -prune -o -name \"start.py\" -path \"*cli/node*\" -print)",
+      "Bash(find / -path /proc -prune -o -name \"*.py\" -path \"*vantage6*cli*node*\" -print)",
+      "Bash(pip3 show *)",
+      "Read(//home/sinse/**)",
+      "Bash(sudo cat ~/.config/vantage6/node/alpha.yaml)",
+      "Bash(curl -s http://localhost:5000/api/nodes)",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/start -o /tmp/claude-1000/-mnt-c-Source-MDW-vantage6-node-manager/6f9540ad-7317-4499-8356-810a5558c0c3/scratchpad/start_resp.html -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(timeout 90 uv run python algoritms/average/run_study.py)",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/restart -o /dev/null -w \"restart HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/stop -o /dev/null -w \"stop HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/start -o /dev/null -w \"start HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:5000/nodes/alpha)",
+      "Bash(docker info *)",
+      "Bash(docker context *)",
+      "Bash(docker build *)"
     ]
   }
 }
