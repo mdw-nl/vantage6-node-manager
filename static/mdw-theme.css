@@ -83,6 +83,7 @@ pre {
     border: none;
     border-radius: var(--radius);
     padding: 1.25rem;
+    white-space: pre-wrap;
 }
 
 pre code {

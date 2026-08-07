@@ -99,7 +99,10 @@
       "Bash(curl -s http://localhost:5000/nodes/alpha)",
       "Bash(docker info *)",
       "Bash(docker context *)",
-      "Bash(docker build *)"
+      "Bash(docker build *)",
+      "Bash(echo \"exit code: $?\")",
+      "Bash(echo \"cherry-pick exit: $?\")",
+      "Bash(echo \"no conflicts found \\(exit $?\\)\")"
     ]
   }
 }

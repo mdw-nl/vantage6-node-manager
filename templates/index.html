@@ -55,7 +55,9 @@
                     <tr>
                         <td><strong>{{ config.name }}</strong></td>
                         <td>
-                            <span class="status-badge status-{{ config.status }}">
+                            <span class="status-badge status-{{ config.status }}"
+                                  id="health-badge-{{ config.name }}"
+                                  data-node-name="{{ config.name }}">
                                 {% if config.status == 'running' %}
                                     <i class="bi bi-play-fill"></i> Running
                                 {% elif config.status == 'stopped' %}
@@ -63,6 +65,9 @@
                                 {% else %}
                                     <i class="bi bi-question-circle"></i> Unknown
                                 {% endif %}
+                            </span>
+                            <span class="badge bg-warning ms-1" id="task-badge-{{ config.name }}" style="display: none;">
+                                <i class="bi bi-cpu-fill"></i> <span class="task-badge-count"></span>
                             </span>
                         </td>
                         <td>
@@ -146,4 +151,57 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const HEALTH_ICONS = {
+        online:       '<i class="bi bi-play-fill"></i> Running',
+        starting:     '<i class="bi bi-hourglass-split"></i> Starting',
+        reconnecting: '<i class="bi bi-arrow-repeat"></i> Reconnecting',
+        error:        '<i class="bi bi-exclamation-triangle-fill"></i> Error',
+        stopped:      '<i class="bi bi-stop-fill"></i> Stopped',
+        unknown:      '<i class="bi bi-question-circle"></i> Unknown',
+    };
+
+    const HEALTH_CLASSES = {
+        online:       'status-running',
+        starting:     'status-starting',
+        reconnecting: 'status-reconnecting',
+        error:        'status-error',
+        stopped:      'status-stopped',
+        unknown:      'status-unknown',
+    };
+
+    function updateHealthBadge(badge, health) {
+        badge.className = 'status-badge ' + (HEALTH_CLASSES[health.status] || 'status-unknown');
+        badge.innerHTML = HEALTH_ICONS[health.status] || HEALTH_ICONS.unknown;
+        badge.title = health.message || '';
+
+        const taskBadge = document.getElementById('task-badge-' + health.name);
+        if (!taskBadge) return;
+        const tasks = health.tasks || [];
+        if (tasks.length > 0) {
+            taskBadge.style.display = '';
+            taskBadge.querySelector('.task-badge-count').textContent =
+                tasks.length === 1 ? 'Running task' : `Running ${tasks.length} tasks`;
+            taskBadge.title = tasks.map(t => `run ${t.run_id}: ${t.image}`).join('\n');
+        } else {
+            taskBadge.style.display = 'none';
+        }
+    }
+
+    function pollAllNodes() {
+        document.querySelectorAll('[data-node-name]').forEach(badge => {
+            const name = badge.dataset.nodeName;
+            fetch(`/api/nodes/${name}/health`)
+                .then(r => r.json())
+                .then(data => updateHealthBadge(badge, data))
+                .catch(() => {});
+        });
+    }
+
+    pollAllNodes();
+    setInterval(pollAllNodes, 15000);
+</script>
 {% endblock %}

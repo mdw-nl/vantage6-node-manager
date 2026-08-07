@@ -372,20 +372,21 @@ def get_node_status(node_name, system_folders=False):
         return 'error'
 
 
-def get_node_health_status(node_name, system_folders=False):
+def get_node_health_status(config):
     """
-    Derive a meaningful health status from the node container logs.
+    Derive node health from the vantage6 server's own record of this node
+    (its 'status' and 'last_seen' fields, fetched using the node's own
+    api_key) rather than parsing log text.
 
-    Scans the last 100 log lines from bottom to top and returns the first
-    matching status. The container must be running — if it is not, returns
-    'stopped' immediately.
+    The container-running check still covers 'stopped' - there's no point
+    asking the server about a node whose container isn't even up. A failed
+    server call becomes its own 'error' state (with the server's actual
+    error message) instead of a missed log pattern.
 
     Returns a dict with 'status' and 'message' keys.
     """
-    import re
-
-    postfix = "system" if system_folders else "user"
-    container_name = f"{APPNAME}-{node_name}-{postfix}"
+    postfix = "system" if config['type'] == 'system' else "user"
+    container_name = f"{APPNAME}-{config['name']}-{postfix}"
 
     client = get_docker_client()
     if not client:
@@ -401,36 +402,189 @@ def get_node_health_status(node_name, system_folders=False):
     if container.status != 'running':
         return {'status': 'stopped', 'message': f'Container is {container.status}'}
 
+    base, headers, node_data, error = get_node_api_session(config)
+    if not base:
+        return {'status': 'error', 'message': error}
+
+    if node_data.get('status') == 'online':
+        last_seen = node_data.get('last_seen')
+        message = f'Connected to server (last seen {last_seen})' if last_seen else 'Connected to server'
+        return {'status': 'online', 'message': message}
+
+    # Container is running but the server doesn't have it marked online.
+    # Tell "just booted, hasn't connected yet" apart from "was connected,
+    # dropped off" using the container's own uptime rather than log text.
+    started_at = container.attrs.get('State', {}).get('StartedAt')
+    uptime_seconds = None
+    if started_at:
+        try:
+            started_dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+            uptime_seconds = (datetime.now(started_dt.tzinfo) - started_dt).total_seconds()
+        except ValueError:
+            pass
+
+    if uptime_seconds is not None and uptime_seconds < 30:
+        return {'status': 'starting', 'message': 'Node is starting up'}
+
+    last_seen = node_data.get('last_seen')
+    message = f'Disconnected from server (last seen {last_seen})' if last_seen else 'Disconnected from server'
+    return {'status': 'reconnecting', 'message': message}
+
+
+def get_running_tasks(node_name):
+    """
+    List algorithm containers this node is currently executing.
+
+    When a vantage6 node runs a task it spawns a sibling container on the
+    same docker host (not nested inside the node container) labelled
+    vantage6-type=algorithm, node=<name>, run_id=<run id>. Those labels are
+    set by the node software itself, so this works regardless of whether
+    the node was started through this manager or elsewhere.
+    """
+    client = get_docker_client()
+    if not client:
+        return []
+
     try:
-        raw_logs = container.logs(tail=100).decode('utf-8', errors='replace')
+        containers = client.containers.list(filters={
+            'label': ['vantage6-type=algorithm', f'node={node_name}']
+        })
+    except Exception:
+        return []
+
+    tasks = []
+    for container in containers:
+        labels = container.labels
+        image = container.attrs.get('Config', {}).get('Image', 'unknown')
+        tasks.append({
+            'run_id': labels.get('run_id', '?'),
+            'image': image,
+            'container_name': container.name,
+            'started_at': container.attrs.get('State', {}).get('StartedAt'),
+        })
+
+    tasks.sort(key=lambda t: t['started_at'] or '')
+    return tasks
+
+
+def get_node_api_session(config):
+    """
+    Authenticate to this node's vantage6 server using the node's own
+    api_key - the same credential the node itself uses to connect.
+
+    Returns (base_url, headers, node_data, error). node_data is the
+    server's own record for this node (id, status, last_seen, ...). On
+    failure base_url/headers/node_data are None and error holds a short,
+    server-provided reason where available.
+    """
+    data = config.get('data', {})
+    server_url = data.get('server_url')
+    api_key = data.get('api_key')
+    if not server_url or not api_key:
+        return None, None, None, 'Node config is missing server_url or api_key'
+
+    api_path = data.get('api_path', '/api')
+    port = data.get('port')
+    base = f"{server_url}:{port}{api_path}" if port else f"{server_url}{api_path}"
+
+    try:
+        token_resp = requests.post(f'{base}/token/node', json={'api_key': api_key}, timeout=5)
+    except requests.exceptions.RequestException as e:
+        return None, None, None, f'Could not connect to server: {e}'
+
+    if not token_resp.ok:
+        try:
+            reason = token_resp.json().get('msg', token_resp.text)
+        except ValueError:
+            reason = token_resp.text
+        return None, None, None, reason or f'Server returned {token_resp.status_code}'
+
+    headers = {'Authorization': f'Bearer {token_resp.json()["access_token"]}'}
+
+    try:
+        me = requests.get(f'{base}/node', headers=headers, timeout=5)
+        me.raise_for_status()
+        node_data = me.json()['data'][0]
     except Exception as e:
-        return {'status': 'unknown', 'message': f'Could not read logs: {str(e)}'}
+        return None, None, None, f'Could not read node record from server: {e}'
 
-    # Strip ANSI colour codes
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-    lines = [ansi_escape.sub('', line) for line in raw_logs.splitlines()]
+    return base, headers, node_data, None
 
-    # Patterns checked in priority order — first match from the bottom wins
-    patterns = [
-        ('error',        'Unable to authenticate. Exiting'),
-        ('error',        'Authentication failed'),
-        ('error',        'API key is not recognized'),
-        ('error',        'Could not connect to the server'),
-        ('online',       'Waiting for new tasks'),
-        ('online',       '(Re)Connected to the /tasks namespace'),
-        ('online',       'Successfully authenticated'),
-        ('reconnecting', 'Disconnected from the server'),
-        ('starting',     'Connecting server:'),
-    ]
 
-    for line in reversed(lines):
-        for status, pattern in patterns:
-            if pattern in line:
-                # Use the actual log line as the message, stripped of the prefix
-                message = line.split(' - ')[-1].strip() if ' - ' in line else line.strip()
-                return {'status': status, 'message': message}
+def get_task_history(config, per_page=10, page=1):
+    """
+    Fetch a page of this node's task-execution history from the vantage6
+    server's own records, rather than inferring it from log text. The
+    server tracks each run's status and timestamps in its database
+    regardless of what the node's local logs say or how long they're kept,
+    so this reflects the server's ground truth and isn't tied to any
+    particular wording the node software happens to log.
 
-    return {'status': 'starting', 'message': 'Node is starting up'}
+    Returns {'tasks': [...], 'page': int, 'per_page': int, 'total': int,
+    'total_pages': int}.
+    """
+    empty = {'tasks': [], 'page': page, 'per_page': per_page, 'total': 0, 'total_pages': 0}
+
+    base, headers, node_data, error = get_node_api_session(config)
+    if not base:
+        return empty
+
+    try:
+        resp = requests.get(f'{base}/run', headers=headers, params={
+            'node_id': node_data['id'],
+            'include': 'task',
+            'sort': '-id',
+            'per_page': per_page,
+            'page': page,
+        }, timeout=5)
+        resp.raise_for_status()
+        runs = resp.json().get('data', [])
+        total = int(resp.headers.get('total-count', len(runs)))
+    except Exception:
+        return empty
+
+    history = []
+    for run in runs:
+        task = run.get('task') or {}
+        started_at = run.get('started_at')
+        finished_at = run.get('finished_at')
+
+        if finished_at:
+            status = 'completed' if run.get('status') == 'completed' else 'error'
+        elif started_at:
+            status = 'running'
+        else:
+            status = 'pending'
+
+        duration_seconds = None
+        if started_at and finished_at:
+            try:
+                duration_seconds = max(0, int(
+                    (datetime.fromisoformat(finished_at) - datetime.fromisoformat(started_at)).total_seconds()
+                ))
+            except ValueError:
+                pass
+
+        if duration_seconds is None:
+            duration_display = '—'
+        elif duration_seconds >= 60:
+            duration_display = f'{duration_seconds // 60}m {duration_seconds % 60}s'
+        else:
+            duration_display = f'{duration_seconds}s'
+
+        history.append({
+            'task_id': task.get('id'),
+            'run_id': run.get('id'),
+            'name': task.get('name') or '—',
+            'image': task.get('image') or '—',
+            'started_at': started_at,
+            'finished_at': finished_at,
+            'duration_display': duration_display,
+            'status': status,
+        })
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return {'tasks': history, 'page': page, 'per_page': per_page, 'total': total, 'total_pages': total_pages}
 
 
 @app.route('/')
@@ -638,8 +792,14 @@ def view_node(name):
                 }
             except Exception as e:
                 print(f"Error getting container info: {e}")
-    
-    return render_template('view_node.html', config=config, container_info=container_info)
+
+    running_tasks = get_running_tasks(name) if status == 'running' else []
+
+    # Task history is fetched client-side (see refreshTaskHistory() in the
+    # template) so a slow or unreachable vantage6 server can't stall this
+    # page's initial load.
+    return render_template('view_node.html', config=config, container_info=container_info,
+                            running_tasks=running_tasks)
 
 
 @app.route('/nodes/<name>/start', methods=['POST'])
@@ -913,13 +1073,21 @@ def view_logs(name):
     client = get_docker_client()
     if not client:
         return jsonify({'error': 'Docker not available'}), 500
-    
+
+    tail_param = request.args.get('tail', '100')
+    if tail_param == 'all':
+        tail = 'all'
+    elif tail_param.isdigit():
+        tail = int(tail_param)
+    else:
+        tail = 100
+
     try:
         postfix = "system" if config['type'] == 'system' else "user"
         container_name = f"{APPNAME}-{name}-{postfix}"
-        
+
         container = client.containers.get(container_name)
-        logs = container.logs(tail=100).decode('utf-8')
+        logs = container.logs(tail=tail).decode('utf-8')
         
         return jsonify({'logs': logs})
     
@@ -1308,16 +1476,41 @@ def api_list_nodes():
 
 @app.route('/api/nodes/<name>/health')
 def api_node_health(name):
-    """API endpoint to get the real health status derived from container logs"""
+    """API endpoint to get the node's health status from the vantage6 server"""
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
     if not config:
         return jsonify({'error': 'Node not found'}), 404
 
-    health = get_node_health_status(name, config['type'] == 'system')
+    health = get_node_health_status(config)
     health['name'] = name
+    health['tasks'] = get_running_tasks(name) if health['status'] != 'stopped' else []
     return jsonify(health)
+
+
+@app.route('/api/nodes/<name>/tasks')
+def api_node_tasks(name):
+    """API endpoint to get a node's task execution history from the vantage6 server"""
+    configs = get_node_configs()
+    config = next((c for c in configs if c['name'] == name), None)
+
+    if not config:
+        return jsonify({'error': 'Node not found'}), 404
+
+    per_page = request.args.get('limit', 10, type=int)
+    per_page = max(1, min(per_page, 100))
+    page = request.args.get('page', 1, type=int)
+    page = max(1, page)
+
+    result = get_task_history(config, per_page=per_page, page=page)
+    return jsonify({
+        'history': result['tasks'],
+        'page': result['page'],
+        'per_page': result['per_page'],
+        'total': result['total'],
+        'total_pages': result['total_pages'],
+    })
 
 
 @app.route('/api/server/version')
