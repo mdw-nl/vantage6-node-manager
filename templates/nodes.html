@@ -79,9 +79,6 @@
                                     <i class="bi bi-question-circle"></i> Unknown
                                 {% endif %}
                             </span>
-                            <span class="badge bg-warning ms-1" id="task-badge-{{ config.name }}" style="display: none;">
-                                <i class="bi bi-cpu-fill"></i> <span class="task-badge-count"></span>
-                            </span>
                         </td>
                         <td>
                             <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">
@@ -260,18 +257,6 @@
         badge.className = 'status-badge ' + (HEALTH_CLASSES[health.status] || 'status-unknown');
         badge.innerHTML = HEALTH_ICONS[health.status] || HEALTH_ICONS.unknown;
         badge.title = health.message || '';
-
-        const taskBadge = document.getElementById('task-badge-' + health.name);
-        if (!taskBadge) return;
-        const tasks = health.tasks || [];
-        if (tasks.length > 0) {
-            taskBadge.style.display = '';
-            taskBadge.querySelector('.task-badge-count').textContent =
-                tasks.length === 1 ? 'Running task' : `Running ${tasks.length} tasks`;
-            taskBadge.title = tasks.map(t => `run ${t.run_id}: ${t.image}`).join('\n');
-        } else {
-            taskBadge.style.display = 'none';
-        }
     }
 
     function pollAllNodes() {
