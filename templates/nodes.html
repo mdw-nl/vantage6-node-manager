@@ -127,6 +127,10 @@
                                    class="btn btn-sm btn-info" title="View">
                                     <i class="bi bi-eye"></i>
                                 </a>
+                                <a href="{{ url_for('edit_node', name=config.name) }}"
+                                   class="btn btn-sm btn-outline-secondary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
                                 {% if config.status == 'running' %}
                                 <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-danger" title="Stop">

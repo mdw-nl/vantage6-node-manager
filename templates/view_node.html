@@ -54,6 +54,9 @@
         {% endif %}
 
         <div class="ms-auto">
+            <a href="{{ url_for('edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
             <a href="{{ url_for('export_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-download"></i> Export
             </a>

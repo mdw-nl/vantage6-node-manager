@@ -618,6 +618,57 @@ def list_nodes():
     return render_template('nodes.html', configs=configs)
 
 
+def _process_encryption_form(name, current_private_key=None):
+    """
+    Handle the encryption section of the create/edit node form: saves an
+    uploaded or generated private key to disk. Shared by new_node() and
+    edit_node() so both save keys the same way.
+
+    current_private_key is the node's existing config['encryption']['private_key']
+    (edit_node() only) - when encryption is already enabled and the user
+    doesn't upload/generate a replacement, the existing key is kept rather
+    than being wiped.
+
+    Returns (encryption_enabled, private_key_path).
+    """
+    encryption_enabled = request.form.get('encryption_enabled') == 'on'
+    if not encryption_enabled:
+        return False, None
+
+    key_source = request.form.get('key_source', 'upload')
+    keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
+
+    if key_source == 'generate':
+        generated_private_key = request.form.get('generated_private_key')
+        if generated_private_key:
+            keys_dir.mkdir(parents=True, exist_ok=True)
+            private_key_path = keys_dir / f"{name}_private_key.pem"
+            with open(private_key_path, 'w') as f:
+                f.write(generated_private_key)
+            os.chmod(str(private_key_path), 0o600)
+            flash('Generated private key saved securely', 'success')
+            return True, str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
+        if current_private_key:
+            return True, current_private_key
+        flash('Encryption enabled but no private key was generated', 'error')
+        return False, None
+
+    # key_source == 'upload'
+    private_key_file = request.files.get('private_key_file')
+    if private_key_file and private_key_file.filename:
+        filename = secure_filename(private_key_file.filename)
+        keys_dir.mkdir(parents=True, exist_ok=True)
+        private_key_path = keys_dir / f"{name}_{filename}"
+        private_key_file.save(str(private_key_path))
+        os.chmod(str(private_key_path), 0o600)
+        flash('Private key uploaded and saved securely', 'success')
+        return True, str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
+    if current_private_key:
+        return True, current_private_key
+    flash('Encryption enabled but no private key file uploaded', 'error')
+    return False, None
+
+
 @app.route('/nodes/new', methods=['GET', 'POST'])
 def new_node():
     """Create a new node configuration"""
@@ -641,70 +692,8 @@ def new_node():
             allow_local_images = request.form.get('allow_local_images') == 'on'
 
             # Encryption configuration
-            encryption_enabled = request.form.get('encryption_enabled') == 'on'
-            private_key_path = None
-            
-            if encryption_enabled:
-                # Check if key was generated or uploaded
-                key_source = request.form.get('key_source', 'upload')
-                
-                if key_source == 'generate':
-                    # Handle generated private key
-                    generated_private_key = request.form.get('generated_private_key')
-                    if generated_private_key:
-                        # Create a private_keys subdirectory if it doesn't exist
-                        keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
-                        keys_dir.mkdir(parents=True, exist_ok=True)
-                        
-                        # Save with node name
-                        safe_filename = f"{name}_private_key.pem"
-                        private_key_path = keys_dir / safe_filename
-                        
-                        # Write the generated key to file
-                        with open(private_key_path, 'w') as f:
-                            f.write(generated_private_key)
-                        
-                        # Set proper permissions (read-only for owner)
-                        os.chmod(str(private_key_path), 0o600)
-                        
-                        # Store relative path in config for portability
-                        private_key_path = str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
-                        
-                        flash(f'Generated private key saved securely', 'success')
-                    else:
-                        flash('Encryption enabled but no private key was generated', 'error')
-                        encryption_enabled = False
-                else:
-                    # Handle private key file upload
-                    if 'private_key_file' in request.files:
-                        private_key_file = request.files['private_key_file']
-                        if private_key_file and private_key_file.filename:
-                            # Secure the filename and save to config directory
-                            filename = secure_filename(private_key_file.filename)
-                            
-                            # Create a private_keys subdirectory if it doesn't exist
-                            keys_dir = VANTAGE6_CONFIG_DIR / 'private_keys'
-                            keys_dir.mkdir(parents=True, exist_ok=True)
-                            
-                            # Save with node name prefix to avoid conflicts
-                            safe_filename = f"{name}_{filename}"
-                            private_key_path = keys_dir / safe_filename
-                            private_key_file.save(str(private_key_path))
-                            
-                            # Set proper permissions (read-only for owner)
-                            os.chmod(str(private_key_path), 0o600)
-                            
-                            # Store relative path in config for portability
-                            private_key_path = str(private_key_path.relative_to(VANTAGE6_CONFIG_DIR.parent))
-                            
-                            flash(f'Private key uploaded and saved securely', 'success')
-                        else:
-                            flash('Encryption enabled but no private key file provided', 'error')
-                            encryption_enabled = False
-                    else:
-                        flash('Encryption enabled but no private key file uploaded', 'error')
-                        encryption_enabled = False
-            
+            encryption_enabled, private_key_path = _process_encryption_form(name)
+
             # Build configuration
             config = {
                 'api_key': api_key,
@@ -758,6 +747,76 @@ def new_node():
             flash(f'Error creating configuration: {str(e)}', 'error')
     
     return render_template('new_node.html')
+
+
+@app.route('/nodes/<name>/edit', methods=['GET', 'POST'])
+def edit_node(name):
+    """
+    Edit an existing node's configuration in place.
+
+    Unlike new_node(), this loads the node's current YAML and only
+    overwrites the specific fields the form covers - anything else already
+    in the file (e.g. images, node_extra_hosts, extra databases beyond the
+    first, or fields added by hand-editing/importing) survives untouched.
+    Renaming isn't supported here: the config filename, container name and
+    the server's own record of the node are all tied to the current name.
+    """
+    configs = get_node_configs()
+    config = next((c for c in configs if c['name'] == name), None)
+
+    if not config:
+        flash(f'Node configuration "{name}" not found', 'error')
+        return redirect(url_for('list_nodes'))
+
+    if request.method == 'POST':
+        try:
+            data = config['data'] or {}
+
+            data['server_url'] = request.form.get('server_url')
+            port = request.form.get('port')
+            data['port'] = int(port) if port else None
+            data['api_path'] = request.form.get('api_path', '/api')
+            data['task_dir'] = request.form.get('task_dir') or data.get('task_dir', '/tmp/vantage6')
+
+            api_key = request.form.get('api_key')
+            if api_key:
+                data['api_key'] = api_key
+
+            db_label = request.form.get('db_label', 'default')
+            db_uri = request.form.get('db_uri')
+            db_type = request.form.get('db_type', 'csv')
+            databases = data.get('databases') or [{}]
+            databases[0] = {'label': db_label, 'uri': db_uri, 'type': db_type}
+            data['databases'] = databases
+
+            existing_encryption = data.get('encryption') or {}
+            encryption_enabled, private_key_path = _process_encryption_form(
+                name, current_private_key=existing_encryption.get('private_key')
+            )
+            data['encryption'] = {
+                'enabled': encryption_enabled,
+                'private_key': private_key_path if encryption_enabled else None
+            }
+
+            allow_local_images = request.form.get('allow_local_images') == 'on'
+            policies = data.get('policies') or {}
+            policies['require_algorithm_pull'] = not allow_local_images
+            policies.setdefault('allowed_algorithms', [])
+            data['policies'] = policies
+
+            with open(config['path'], 'w') as f:
+                yaml.dump(data, f, default_flow_style=False)
+
+            if get_node_status(name, config['type'] == 'system') == 'running':
+                flash(f'Node configuration "{name}" updated. Restart the node for the changes to take effect.', 'success')
+            else:
+                flash(f'Node configuration "{name}" updated.', 'success')
+            return redirect(url_for('view_node', name=name))
+
+        except Exception as e:
+            flash(f'Error updating configuration: {str(e)}', 'error')
+
+    return render_template('edit_node.html', config=config)
 
 
 @app.route('/nodes/<name>')

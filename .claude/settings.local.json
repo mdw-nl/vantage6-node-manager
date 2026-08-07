@@ -102,7 +102,16 @@
       "Bash(docker build *)",
       "Bash(echo \"exit code: $?\")",
       "Bash(echo \"cherry-pick exit: $?\")",
-      "Bash(echo \"no conflicts found \\(exit $?\\)\")"
+      "Bash(echo \"no conflicts found \\(exit $?\\)\")",
+      "Bash(curl -s -o /dev/null -w \"dashboard: %{http_code}\\\\n\" http://localhost:5000/)",
+      "Bash(curl -s -o /dev/null -w \"nodes list: %{http_code}\\\\n\" http://localhost:5000/nodes)",
+      "Bash(curl -s -o /dev/null -w \"node detail: %{http_code}\\\\n\" http://localhost:5000/nodes/alpha)",
+      "Bash(curl -s \"http://localhost:5000/api/nodes/alpha/tasks?limit=3\")",
+      "Bash(curl -s -o /dev/null -w \"GET edit alpha: %{http_code}\\\\n\" http://localhost:5000/nodes/alpha/edit)",
+      "Bash(curl -s http://localhost:5000/nodes/alpha/edit)",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/edit -F server_url=http://host.docker.internal -F port=5070 -F api_path=/api -F api_key=844a7d92-1cc9-4856-bf33-0613252d5b3c -F db_label=default -F db_uri=/home/sinse/MDW/v6-infrastructure-sh/data/lung1/alpha.csv -F db_type=csv -F task_dir=/tmp/vantage6-edited -F allow_local_images=on -o /dev/null -w 'POST edit: %{http_code}\\\\n')",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/edit -F server_url=http://host.docker.internal -F port=5070 -F api_path=/api -F api_key=844a7d92-1cc9-4856-bf33-0613252d5b3c -F db_label=default -F db_uri=/home/sinse/MDW/v6-infrastructure-sh/data/lung1/alpha.csv -F db_type=csv -F task_dir=/tmp/vantage6 -F allow_local_images=on -o /dev/null -w 'POST edit: %{http_code}\\\\n')",
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/restart -o /dev/null -w \"restart: %{http_code}\\\\n\")"
     ]
   }
 }
