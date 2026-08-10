@@ -28,6 +28,7 @@
 
 <div class="card mb-4">
     <div class="card-body d-flex align-items-center gap-2 py-2">
+        {% if current_user.role == 'admin' %}
         {% if config.status == 'running' %}
         <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-danger">
@@ -52,7 +53,15 @@
             <i class="bi bi-gear"></i> Advanced
         </button>
         {% endif %}
+        {% else %}
+        {% if config.status == 'running' %}
+        <button class="btn btn-sm btn-info" onclick="refreshLogs()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Logs
+        </button>
+        {% endif %}
+        {% endif %}
 
+        {% if current_user.role == 'admin' %}
         <div class="ms-auto">
             <a href="{{ url_for('nodes.edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-pencil"></i> Edit
@@ -68,6 +77,7 @@
                 </button>
             </form>
         </div>
+        {% endif %}
     </div>
 </div>
 

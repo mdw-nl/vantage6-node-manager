@@ -15,6 +15,7 @@ from nodemanager.config import VANTAGE6_CONFIG_DIR, APPNAME
 from nodemanager.docker_utils import get_docker_client, get_node_status, get_running_nodes
 from nodemanager.node_config import get_node_configs
 from nodemanager.server_api import get_running_tasks
+from nodemanager.auth import admin_required
 
 nodes_bp = Blueprint('nodes', __name__)
 
@@ -102,6 +103,7 @@ def _process_encryption_form(name, current_private_key=None):
 
 
 @nodes_bp.route('/nodes/new', methods=['GET', 'POST'])
+@admin_required
 def new_node():
     """Create a new node configuration"""
     if request.method == 'POST':
@@ -182,6 +184,7 @@ def new_node():
 
 
 @nodes_bp.route('/nodes/<name>/edit', methods=['GET', 'POST'])
+@admin_required
 def edit_node(name):
     """
     Edit an existing node's configuration in place.
@@ -330,6 +333,7 @@ def view_logs(name):
 
 
 @nodes_bp.route('/nodes/<name>/delete', methods=['POST'])
+@admin_required
 def delete_node(name):
     """Delete a node configuration"""
     configs = get_node_configs()
@@ -352,6 +356,7 @@ def delete_node(name):
 
 
 @nodes_bp.route('/nodes/<name>/export')
+@admin_required
 def export_node(name):
     """
     Export a node's config as a download. Plain .yaml when there's nothing
@@ -410,6 +415,7 @@ def _write_imported_config(name, config_data):
 
 
 @nodes_bp.route('/nodes/import', methods=['GET', 'POST'])
+@admin_required
 def import_node():
     """Import a node config from a previously exported .yaml file or .zip backup"""
     if request.method == 'GET':
@@ -495,6 +501,7 @@ def import_node():
 
 
 @nodes_bp.route('/nodes/bulk/delete', methods=['POST'])
+@admin_required
 def bulk_delete_nodes():
     names = request.form.getlist('names')
     if not names:

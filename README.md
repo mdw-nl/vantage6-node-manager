@@ -313,9 +313,14 @@ docker build -t vantage6-node-manager .
 
 ### Running Tests
 
+The permission/RBAC test suite is the only automated test coverage in this repo so far — it
+covers the login/role enforcement boundary, not the full app.
+
 ```bash
-# TODO: Add tests
-pytest
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest tests/ -v
 ```
 
 ## Troubleshooting
@@ -388,6 +393,20 @@ account is created automatically:
 
 This seeding only happens once; restarting the container never resets an existing `users.yaml`.
 
+### Roles and managing users
+
+There are two roles:
+- **admin** — full access: create/edit/delete/import node configs, start/stop/restart nodes,
+  and manage users.
+- **viewer** — read-only: can see the dashboard, node list, node details, and logs, but every
+  mutating action is blocked server-side (not just hidden in the UI).
+
+Once logged in as an admin, go to **Users** in the sidebar to add accounts, change a user's role,
+reset a password, or delete a user. A few safeguards are built in and will refuse the action with
+a flash message rather than fail silently: you can't delete or demote the sole remaining admin
+account, and you can't delete or change the role of the account you're currently logged in as
+(use a second admin account for that).
+
 ### Where the account is stored
 
 Credentials live in `users.yaml`, next to this app's other persistent state (node configs,
@@ -411,8 +430,14 @@ sudo cat ~/.config/vantage6/users.yaml
 
 ### Resetting or changing the password
 
-The seeding step only runs when `users.yaml` doesn't exist yet, so resetting means deleting it and
-letting the app recreate it. 
+If you're locked out of an *individual* account but another admin can still log in, use the
+**Users** page instead of anything below — an admin can reset any user's password from there
+in a couple of clicks, and it's the normal path now that there can be more than one account.
+
+The steps below are for when there's no working admin account at all. The seeding step only runs
+when `users.yaml` doesn't exist yet, so resetting means deleting it and letting the app recreate
+it — **this wipes every account in the file, not just the admin one**, since multi-user support
+means `users.yaml` may hold several accounts by now.
 ```bash
 # 1. set the new password in .env (or leave ADMIN_PASSWORD blank to get a generated one)
 # 2. delete the existing account
@@ -479,7 +504,7 @@ For more information about the branding implementation, see [docs/BRANDING.md](d
 
 Future enhancements:
 - [x] User authentication and authorization
-- [ ] Multi-user support with role-based access
+- [x] Multi-user support with role-based access
 - [x] Advanced log filtering and search
 - [x] Node health monitoring
 - [ ] Health alerts / notifications
@@ -489,3 +514,4 @@ Future enhancements:
 - [ ] WebSocket support for real-time updates
 - [x] Export/import node configurations
 - [x] Batch operations on multiple nodes
+- [x] Edit nodes configs

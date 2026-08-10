@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Users - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="page-title">
+        <i class="bi bi-people"></i> Users
+    </h1>
+    <a href="{{ url_for('auth.new_user') }}" class="btn btn-primary">
+        <i class="bi bi-plus"></i> Add User
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ul"></i> All Users ({{ users|length }})</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="padding-left: 1.25rem;">Username</th>
+                        <th>Role</th>
+                        <th class="text-end" style="padding-right: 1.25rem;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for username, record in users.items() %}
+                    <tr>
+                        <td style="padding-left: 1.25rem;">
+                            <strong>{{ username }}</strong>
+                            {% if username == current_user.id %}
+                            <span class="badge bg-secondary ms-1">you</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-{{ 'primary' if record.role == 'admin' else 'secondary' }}">
+                                {{ record.role }}
+                            </span>
+                        </td>
+                        <td class="text-end" style="padding-right: 1.25rem;">
+                            {% if username == current_user.id %}
+                            <span class="text-secondary" style="font-size: 0.85rem;">&mdash;</span>
+                            {% else %}
+                            <div class="d-flex gap-1 justify-content-end flex-wrap">
+                                <form method="POST" action="{{ url_for('auth.change_user_role', username=username) }}" class="d-inline">
+                                    <input type="hidden" name="role" value="{{ 'viewer' if record.role == 'admin' else 'admin' }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                        Make {{ 'viewer' if record.role == 'admin' else 'admin' }}
+                                    </button>
+                                </form>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        data-bs-toggle="collapse" data-bs-target="#reset-{{ loop.index }}">
+                                    <i class="bi bi-key"></i> Reset password
+                                </button>
+                                <form method="POST" action="{{ url_for('auth.delete_user', username=username) }}" class="d-inline"
+                                      onsubmit="return confirm('Delete user \'{{ username }}\'? This cannot be undone.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                            <div class="collapse mt-2" id="reset-{{ loop.index }}">
+                                <form method="POST" action="{{ url_for('auth.reset_user_password', username=username) }}"
+                                      class="d-flex gap-1 justify-content-end">
+                                    <input type="password" name="password" class="form-control form-control-sm"
+                                           style="max-width: 200px;" placeholder="New password (min 8 chars)"
+                                           minlength="8" required>
+                                    <button type="submit" class="btn btn-sm btn-primary">Set</button>
+                                </form>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@ from nodemanager.docker_utils import get_node_status, get_node_image_for_version
 from nodemanager.node_config import get_node_configs
 from nodemanager.server_api import get_server_version, get_node_health_status, get_running_tasks, get_task_history
 from nodemanager.crypto import generate_rsa_key_pair
+from nodemanager.auth import admin_required
 
 api_bp = Blueprint('api', __name__)
 
@@ -18,6 +19,11 @@ def api_list_nodes():
     for config in configs:
         status = get_node_status(config['name'], config['type'] == 'system')
         config['status'] = status
+        # api_key is a live credential the node uses to authenticate to the
+        # vantage6 server - the browser has no legitimate use for it back,
+        # and this endpoint is viewer-accessible, so it must never round-trip.
+        if config.get('data'):
+            config['data'] = {k: v for k, v in config['data'].items() if k != 'api_key'}
     return jsonify(configs)
 
 
@@ -90,6 +96,7 @@ def api_server_version():
 
 
 @api_bp.route('/api/encryption/generate-key', methods=['POST'])
+@admin_required
 def api_generate_encryption_key():
     """API endpoint to generate a new RSA key pair for encryption"""
     try:

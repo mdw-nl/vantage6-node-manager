@@ -56,10 +56,11 @@ jobs:
         run: |
           # Wait a bit more for Flask to be fully ready
           sleep 5
-          
-          # Test if the web server responds
-          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/ || echo "000")
-          
+
+          # /login is the public endpoint - / now requires auth and redirects
+          # unauthenticated requests there, so it can't be used as the health check.
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/login || echo "000")
+
           if [ "$response" = "200" ]; then
             echo "✅ Health check passed - HTTP $response"
           else
@@ -82,6 +83,24 @@ jobs:
         run: |
           docker stop test-container || true
           docker rm test-container || true
+
+  permission-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest
+        run: pytest tests/ -v
 
   lint-dockerfile:
     runs-on: ubuntu-latest

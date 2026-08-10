@@ -25,14 +25,19 @@
                 <a class="nav-link {% if request.endpoint in ['nodes.list_nodes', 'nodes.view_node'] %}active{% endif %}" href="{{ url_for('nodes.list_nodes') }}">
                     <i class="bi bi-hdd-stack"></i> Nodes
                 </a>
+                {% if current_user.role == 'admin' %}
                 <a class="nav-link {% if request.endpoint == 'nodes.new_node' %}active{% endif %}" href="{{ url_for('nodes.new_node') }}">
                     <i class="bi bi-plus-square"></i> Create Node
                 </a>
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('auth.') and 'user' in request.endpoint %}active{% endif %}" href="{{ url_for('auth.list_users') }}">
+                    <i class="bi bi-people"></i> Users
+                </a>
+                {% endif %}
                 {% endif %}
             </nav>
             <div class="sidebar-footer">
                 {% if current_user.is_authenticated %}
-                <span class="text-muted small d-block mb-2">Logged in as {{ current_user.id }}</span>
+                <span class="text-muted small d-block mb-2">Logged in as {{ current_user.id }} ({{ current_user.role }})</span>
                 <a href="{{ url_for('auth.logout') }}">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </a>

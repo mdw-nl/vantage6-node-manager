@@ -5,8 +5,10 @@ only fires for that blueprint's own routes, so it cannot be used here to gate th
 other blueprints (nodes, actions, api).
 """
 import os
+import re
 import secrets
 import yaml
+from functools import wraps
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -16,6 +18,8 @@ from nodemanager.config import VANTAGE6_CONFIG_DIR, USERS_FILE
 auth_bp = Blueprint('auth', __name__)
 
 login_manager = LoginManager()
+
+ROLES = {'admin', 'viewer'}
 
 
 def _looks_like_placeholder_secret(value):
@@ -97,7 +101,9 @@ def _seed_admin_user():
 def load_user(username):
     users = _load_users()
     if username in users:
-        return User(username, users[username].get('role', 'admin'))
+        # Defaults to the least-privileged role: a missing/corrupt role key
+        # should fail toward less access, not silently grant admin.
+        return User(username, users[username].get('role', 'viewer'))
     return None
 
 
@@ -120,6 +126,35 @@ def require_login():
     return login_manager.unauthorized()
 
 
+def _forbid_non_admin():
+    # Checking is_authenticated first is a fail-closed backstop, not filler:
+    # AnonymousUserMixin has no .role, so without this a route that somehow
+    # bypasses require_login would 500 with an AttributeError here instead
+    # of cleanly 403/redirecting. require_login (app-wide before_request)
+    # always runs before this, so in normal operation current_user is
+    # already authenticated by the time this is reached.
+    if not current_user.is_authenticated or current_user.role != 'admin':
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+        flash('You do not have permission to perform this action.', 'error')
+        return redirect(request.referrer or url_for('nodes.index'))
+    return None
+
+
+def require_admin():
+    """Blueprint-level before_request gate for blueprints that are entirely admin-only."""
+    return _forbid_non_admin()
+
+
+def admin_required(view):
+    """Per-route decorator for admin-only routes inside otherwise-mixed blueprints."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        result = _forbid_non_admin()
+        return result if result is not None else view(*args, **kwargs)
+    return wrapped
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -132,7 +167,7 @@ def login():
         user_record = users.get(username)
 
         if user_record and check_password_hash(user_record['password_hash'], password):
-            login_user(User(username, user_record.get('role', 'admin')))
+            login_user(User(username, user_record.get('role', 'viewer')))
             flash(f'Welcome back, {username}!', 'success')
             next_url = request.form.get('next') or request.args.get('next')
             if (next_url and next_url.startswith('/')
@@ -151,6 +186,121 @@ def logout():
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('auth.login'))
+
+
+def _count_admins(users):
+    return sum(1 for u in users.values() if u.get('role') == 'admin')
+
+
+def _valid_username(username):
+    return bool(re.fullmatch(r'[A-Za-z0-9_-]{1,64}', username or ''))
+
+
+@auth_bp.route('/users')
+@admin_required
+def list_users():
+    users = _load_users()
+    return render_template('users.html', users=users)
+
+
+@auth_bp.route('/users/new', methods=['GET', 'POST'])
+@admin_required
+def new_user():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
+        role = request.form.get('role', '')
+
+        if not _valid_username(username):
+            flash('Username must be 1-64 characters: letters, numbers, underscore, hyphen.', 'error')
+            return render_template('new_user.html')
+        if role not in ROLES:
+            flash('Invalid role.', 'error')
+            return render_template('new_user.html')
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return render_template('new_user.html')
+
+        users = _load_users()
+        if username in users:
+            flash(f'User "{username}" already exists.', 'error')
+            return render_template('new_user.html')
+
+        users[username] = {'password_hash': generate_password_hash(password), 'role': role}
+        _save_users(users)
+        flash(f'User "{username}" created.', 'success')
+        return redirect(url_for('auth.list_users'))
+
+    return render_template('new_user.html')
+
+
+@auth_bp.route('/users/<username>/delete', methods=['POST'])
+@admin_required
+def delete_user(username):
+    if username == current_user.id:
+        flash('You cannot delete your own account.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    users = _load_users()
+    if username not in users:
+        flash(f'User "{username}" not found.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    if users[username].get('role') == 'admin' and _count_admins(users) <= 1:
+        flash('Cannot delete the last remaining admin account.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    del users[username]
+    _save_users(users)
+    flash(f'User "{username}" deleted.', 'success')
+    return redirect(url_for('auth.list_users'))
+
+
+@auth_bp.route('/users/<username>/role', methods=['POST'])
+@admin_required
+def change_user_role(username):
+    if username == current_user.id:
+        flash('You cannot change your own role.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    new_role = request.form.get('role', '')
+    if new_role not in ROLES:
+        flash('Invalid role.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    users = _load_users()
+    if username not in users:
+        flash(f'User "{username}" not found.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    if (users[username].get('role') == 'admin' and new_role != 'admin'
+            and _count_admins(users) <= 1):
+        flash('Cannot demote the last remaining admin account.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    users[username]['role'] = new_role
+    _save_users(users)
+    flash(f'Updated role for "{username}".', 'success')
+    return redirect(url_for('auth.list_users'))
+
+
+@auth_bp.route('/users/<username>/password', methods=['POST'])
+@admin_required
+def reset_user_password(username):
+    users = _load_users()
+    if username not in users:
+        flash(f'User "{username}" not found.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    new_password = request.form.get('password', '')
+    if len(new_password) < 8:
+        flash('Password must be at least 8 characters.', 'error')
+        return redirect(url_for('auth.list_users'))
+
+    users[username]['password_hash'] = generate_password_hash(new_password)
+    _save_users(users)
+    flash(f'Password updated for "{username}".', 'success')
+    return redirect(url_for('auth.list_users'))
 
 
 def init_app(app):

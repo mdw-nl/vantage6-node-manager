@@ -15,8 +15,14 @@ from nodemanager.docker_utils import (
 )
 from nodemanager.node_config import get_node_configs
 from nodemanager.server_api import get_server_version
+from nodemanager.auth import require_admin
 
 actions_bp = Blueprint('actions', __name__)
+# Every route in this blueprint mutates container state via the Docker daemon -
+# gate the whole blueprint at once rather than decorating each route. Registered
+# here (not in auth.init_app) to avoid a circular import: auth.py must not import
+# from this module.
+actions_bp.before_request(require_admin)
 
 
 @actions_bp.route('/nodes/<name>/start', methods=['POST'])
