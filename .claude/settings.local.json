@@ -111,7 +111,22 @@
       "Bash(curl -s http://localhost:5000/nodes/alpha/edit)",
       "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/edit -F server_url=http://host.docker.internal -F port=5070 -F api_path=/api -F api_key=844a7d92-1cc9-4856-bf33-0613252d5b3c -F db_label=default -F db_uri=/home/sinse/MDW/v6-infrastructure-sh/data/lung1/alpha.csv -F db_type=csv -F task_dir=/tmp/vantage6-edited -F allow_local_images=on -o /dev/null -w 'POST edit: %{http_code}\\\\n')",
       "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/edit -F server_url=http://host.docker.internal -F port=5070 -F api_path=/api -F api_key=844a7d92-1cc9-4856-bf33-0613252d5b3c -F db_label=default -F db_uri=/home/sinse/MDW/v6-infrastructure-sh/data/lung1/alpha.csv -F db_type=csv -F task_dir=/tmp/vantage6 -F allow_local_images=on -o /dev/null -w 'POST edit: %{http_code}\\\\n')",
-      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/restart -o /dev/null -w \"restart: %{http_code}\\\\n\")"
+      "Bash(curl -s -i -X POST http://localhost:5000/nodes/alpha/restart -o /dev/null -w \"restart: %{http_code}\\\\n\")",
+      "Bash(compgen -c docker-credential)",
+      "Bash(docker-credential-desktop.exe get *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(docker-credential-desktop.exe list *)",
+      "Bash(docker --version)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} -> %{redirect_url}\\\\n\" http://localhost:15000/)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:15000/api/nodes)",
+      "Bash(curl -s -c /tmp/cookies_wrong.txt -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:15000/login -d \"username=admin&password=wrong\")",
+      "Bash(docker rmi *)",
+      "Bash(sudo rm -rf /tmp/authtest-config)",
+      "Bash(rm -rf /tmp/authtest-config)",
+      "Bash(rm -f /tmp/cookies*.txt)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" 'http://localhost:15001/?__debugger__=yes&cmd=resource&f=debugger.js')",
+      "Bash(curl -s -c /tmp/cookies4.txt -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:15003/login -d \"username=admin&password=hunter2correct\")",
+      "Bash(curl -s -b /tmp/cookies4.txt -o /dev/null -w \"authenticated /: %{http_code}\\\\n\" http://localhost:15003/)"
     ]
   }
 }

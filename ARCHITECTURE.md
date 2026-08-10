@@ -192,8 +192,11 @@ encryption:
 - Password input field (toggleable visibility)
 - Not exposed in API responses
 
+**Implemented:**
+- Session-based user authentication (Flask-Login), single admin account seeded on first run
+
 **Future Enhancements:**
-- Add user authentication
+- Multi-user support with per-user accounts
 - Implement RBAC (Role-Based Access Control)
 - Encrypt sensitive config data
 - Add audit logging

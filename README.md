@@ -369,15 +369,71 @@ pytest
 - Check that other nodes in the collaboration have encryption enabled
 - Ensure the private key hasn't been changed since results were encrypted
 
+## Authentication
+
+The web interface requires login. On first startup, if no `users.yaml` exists yet, an admin
+account is created automatically:
+
+- Set `ADMIN_USERNAME` / `ADMIN_PASSWORD` in your `.env` before the first `docker compose up` to
+  choose your own credentials. **Blank `ADMIN_PASSWORD` again in `.env` once you've confirmed you
+  can log in** — it's only read once to create the account, and leaving a real password sitting in
+  a plaintext `.env` file is a needless risk (`.env` is world-readable by default; see
+  [Security Considerations](#security-considerations)).
+- If `ADMIN_PASSWORD` is left unset, a random password is generated and printed **once** to the
+  container logs (`docker compose logs vantage6-node-manager`) — save it, it isn't shown again.
+
+This seeding only happens once; restarting the container never resets an existing `users.yaml`.
+
+### Where the account is stored
+
+Credentials live in `users.yaml`, next to this app's other persistent state (node configs,
+private keys) at `~/.config/vantage6/` **on the machine running the container** — not inside this
+repository. That's deliberate: this project directory is source code that gets built into the
+Docker image, so anything placed here would either get wiped on a fresh clone/rebuild, or — worse
+— get baked into the image itself and shipped to anyone who pulls it from the registry. Every
+person running their own instance gets their own `users.yaml` under their own home directory, the
+same way each of you already has your own node configs and private keys there.
+
+Because the container runs as root, the file is created as `root`-owned with `600` permissions
+(readable only by root), so you can't just `cat` it directly as your normal user. Two ways in:
+
+```bash
+# Via the running container (no sudo needed):
+docker compose exec vantage6-node-manager cat /root/.config/vantage6/users.yaml
+
+# Or directly on the host:
+sudo cat ~/.config/vantage6/users.yaml
+```
+
+### Resetting or changing the password
+
+The seeding step only runs when `users.yaml` doesn't exist yet, so resetting means deleting it and
+letting the app recreate it. 
+```bash
+# 1. set the new password in .env (or leave ADMIN_PASSWORD blank to get a generated one)
+# 2. delete the existing account
+docker compose exec vantage6-node-manager rm /root/.config/vantage6/users.yaml
+# 3. recreate the container so it picks up the new .env value and reseeds
+docker compose up -d
+# 4. if you set your own password, blank ADMIN_PASSWORD in .env again now that it's seeded
+```
+
+Alternatively, edit the password hash in place without touching `.env` or restarting anything:
+```bash
+python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('newpassword'))"
+# then, as root (sudo or `docker compose exec ... vi ...`), replace the matching
+# password_hash value in users.yaml with the output above
+```
+
 ## Security Considerations
 
-- **Change the default SECRET_KEY** in production
+- **Change the default SECRET_KEY** in production (a random one is auto-generated and persisted
+  if you don't set one, but setting your own is still recommended)
 - Store sensitive information (API keys) securely
 - **Protect your private keys**: Never share them with other organizations
 - Back up private keys securely - losing them means losing access to encrypted data
 - Use HTTPS in production environments
 - Restrict Docker socket access appropriately
-- Consider implementing authentication for the web interface
 - Regularly rotate API keys and encryption keys according to your security policy
 
 ## Contributing
@@ -418,7 +474,7 @@ For more information about the branding implementation, see [docs/BRANDING.md](d
 ## Roadmap
 
 Future enhancements:
-- [ ] User authentication and authorization
+- [x] User authentication and authorization
 - [ ] Multi-user support with role-based access
 - [x] Advanced log filtering and search
 - [x] Node health monitoring
@@ -427,5 +483,5 @@ Future enhancements:
 - [ ] Algorithm store integration
 - [x] Task execution monitoring
 - [ ] WebSocket support for real-time updates
-- [ ] Export/import node configurations
+- [x] Export/import node configurations
 - [x] Batch operations on multiple nodes
