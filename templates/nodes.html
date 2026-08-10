@@ -8,10 +8,10 @@
         <i class="bi bi-hdd-stack"></i> Nodes
     </h1>
     <div class="d-flex gap-2">
-        <a href="{{ url_for('import_node') }}" class="btn btn-outline-secondary">
+        <a href="{{ url_for('nodes.import_node') }}" class="btn btn-outline-secondary">
             <i class="bi bi-upload"></i> Import Node
         </a>
-        <a href="{{ url_for('new_node') }}" class="btn btn-primary">
+        <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
             <i class="bi bi-plus"></i> New Node
         </a>
     </div>
@@ -123,34 +123,34 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group" role="group">
-                                <a href="{{ url_for('view_node', name=config.name) }}"
+                                <a href="{{ url_for('nodes.view_node', name=config.name) }}"
                                    class="btn btn-sm btn-info" title="View">
                                     <i class="bi bi-eye"></i>
                                 </a>
-                                <a href="{{ url_for('edit_node', name=config.name) }}"
+                                <a href="{{ url_for('nodes.edit_node', name=config.name) }}"
                                    class="btn btn-sm btn-outline-secondary" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </a>
                                 {% if config.status == 'running' %}
-                                <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" style="display: inline;">
+                                <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-danger" title="Stop">
                                         <i class="bi bi-stop-fill"></i>
                                     </button>
                                 </form>
-                                <form method="POST" action="{{ url_for('restart_node', name=config.name) }}" style="display: inline;">
+                                <form method="POST" action="{{ url_for('actions.restart_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-warning" title="Restart">
                                         <i class="bi bi-arrow-clockwise"></i>
                                     </button>
                                 </form>
                                 {% else %}
-                                <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;">
+                                <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-success" title="Start">
                                         <i class="bi bi-play-fill"></i>
                                     </button>
                                 </form>
                                 {% endif %}
                             </div>
-                            <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
+                            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
                                   class="d-inline ms-1"
                                   onsubmit="return confirm({% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %});">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
@@ -166,9 +166,9 @@
     </div>
 </div>
 
-<form id="bulkStartForm" method="POST" action="{{ url_for('bulk_start_nodes') }}" style="display:none;"></form>
-<form id="bulkStopForm" method="POST" action="{{ url_for('bulk_stop_nodes') }}" style="display:none;"></form>
-<form id="bulkDeleteForm" method="POST" action="{{ url_for('bulk_delete_nodes') }}" style="display:none;"></form>
+<form id="bulkStartForm" method="POST" action="{{ url_for('actions.bulk_start_nodes') }}" style="display:none;"></form>
+<form id="bulkStopForm" method="POST" action="{{ url_for('actions.bulk_stop_nodes') }}" style="display:none;"></form>
+<form id="bulkDeleteForm" method="POST" action="{{ url_for('nodes.bulk_delete_nodes') }}" style="display:none;"></form>
 
 {% else %}
 <div class="card">
@@ -176,7 +176,7 @@
         <i class="bi bi-inbox" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
         <h5 class="mt-3" style="text-transform: none; letter-spacing: normal; color: var(--text-primary);">No nodes configured</h5>
         <p class="text-secondary mb-3" style="font-size: 0.875rem;">Get started by creating your first vantage6 node.</p>
-        <a href="{{ url_for('new_node') }}" class="btn btn-primary">
+        <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
             <i class="bi bi-plus"></i> Create Node
         </a>
     </div>

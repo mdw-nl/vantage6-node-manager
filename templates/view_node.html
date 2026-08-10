@@ -21,7 +21,7 @@
             {% endif %}
         </span>
     </div>
-    <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary btn-sm">
+    <a href="{{ url_for('nodes.list_nodes') }}" class="btn btn-secondary btn-sm">
         <i class="bi bi-arrow-left"></i> Back
     </a>
 </div>
@@ -29,12 +29,12 @@
 <div class="card mb-4">
     <div class="card-body d-flex align-items-center gap-2 py-2">
         {% if config.status == 'running' %}
-        <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" class="d-inline">
+        <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-danger">
                 <i class="bi bi-stop-fill"></i> Stop
             </button>
         </form>
-        <form method="POST" action="{{ url_for('restart_node', name=config.name) }}" class="d-inline">
+        <form method="POST" action="{{ url_for('actions.restart_node', name=config.name) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-warning">
                 <i class="bi bi-arrow-clockwise"></i> Restart
             </button>
@@ -43,7 +43,7 @@
             <i class="bi bi-arrow-clockwise"></i> Refresh Logs
         </button>
         {% else %}
-        <form method="POST" action="{{ url_for('start_node', name=config.name) }}" class="d-inline">
+        <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-success">
                 <i class="bi bi-play-fill"></i> Start
             </button>
@@ -54,13 +54,13 @@
         {% endif %}
 
         <div class="ms-auto">
-            <a href="{{ url_for('edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+            <a href="{{ url_for('nodes.edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-pencil"></i> Edit
             </a>
-            <a href="{{ url_for('export_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+            <a href="{{ url_for('nodes.export_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-download"></i> Export
             </a>
-            <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
+            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
                   onsubmit="return confirm({% if config.status == 'running' %}'This node is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete this node configuration? This cannot be undone. Consider exporting a backup first.'{% endif %});"
                   class="d-inline">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -315,7 +315,7 @@
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('start_node', name=config.name) }}">
+            <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}">
                 <div class="modal-body">
                     <div class="alert alert-info" style="font-size: 0.85rem;">
                         <i class="bi bi-info-circle"></i> By default the node version is auto-detected from the server.
@@ -353,7 +353,7 @@
     }
 
     function refreshLogs() {
-        fetch("{{ url_for('view_logs', name=config.name) }}")
+        fetch("{{ url_for('nodes.view_logs', name=config.name) }}")
             .then(response => response.json())
             .then(data => {
                 if (data.logs) {
@@ -368,7 +368,7 @@
     }
 
     function searchLogs(query) {
-        fetch("{{ url_for('view_logs', name=config.name) }}?tail=all")
+        fetch("{{ url_for('nodes.view_logs', name=config.name) }}?tail=all")
             .then(response => response.json())
             .then(data => {
                 if (data.logs) {
@@ -466,7 +466,7 @@
 
     function refreshTaskHistory() {
         const body = document.getElementById('taskHistoryBody');
-        fetch(`{{ url_for('api_node_tasks', name=config.name) }}?limit=${TASK_HISTORY_PAGE_SIZE}&page=${taskHistoryPage}`)
+        fetch(`{{ url_for('api.api_node_tasks', name=config.name) }}?limit=${TASK_HISTORY_PAGE_SIZE}&page=${taskHistoryPage}`)
             .then(r => r.json())
             .then(data => {
                 const history = data.history || [];

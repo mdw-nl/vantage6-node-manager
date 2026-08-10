@@ -13,19 +13,19 @@
     <div class="app-shell">
         <aside class="sidebar">
             <div class="sidebar-brand">
-                <a href="{{ url_for('index') }}">
+                <a href="{{ url_for('nodes.index') }}">
                     <img src="{{ url_for('static', filename='img/mdw-logo.png') }}" alt="Medical Data Works">
                 </a>
             </div>
             <nav class="nav flex-column">
                 {% if current_user.is_authenticated %}
-                <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">
+                <a class="nav-link {% if request.endpoint == 'nodes.index' %}active{% endif %}" href="{{ url_for('nodes.index') }}">
                     <i class="bi bi-grid-1x2"></i> Dashboard
                 </a>
-                <a class="nav-link {% if request.endpoint in ['list_nodes', 'view_node'] %}active{% endif %}" href="{{ url_for('list_nodes') }}">
+                <a class="nav-link {% if request.endpoint in ['nodes.list_nodes', 'nodes.view_node'] %}active{% endif %}" href="{{ url_for('nodes.list_nodes') }}">
                     <i class="bi bi-hdd-stack"></i> Nodes
                 </a>
-                <a class="nav-link {% if request.endpoint == 'new_node' %}active{% endif %}" href="{{ url_for('new_node') }}">
+                <a class="nav-link {% if request.endpoint == 'nodes.new_node' %}active{% endif %}" href="{{ url_for('nodes.new_node') }}">
                     <i class="bi bi-plus-square"></i> Create Node
                 </a>
                 {% endif %}
@@ -33,7 +33,7 @@
             <div class="sidebar-footer">
                 {% if current_user.is_authenticated %}
                 <span class="text-muted small d-block mb-2">Logged in as {{ current_user.id }}</span>
-                <a href="{{ url_for('logout') }}">
+                <a href="{{ url_for('auth.logout') }}">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </a>
                 <a href="/api/nodes" target="_blank">

@@ -7,7 +7,7 @@
     <h1 class="page-title">
         <i class="bi bi-grid-1x2"></i> Dashboard
     </h1>
-    <a href="{{ url_for('new_node') }}" class="btn btn-primary">
+    <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
         <i class="bi bi-plus"></i> New Node
     </a>
 </div>
@@ -78,24 +78,24 @@
                         <td><span class="text-secondary">{{ config.data.server_url }}</span></td>
                         <td class="text-end">
                             <div class="btn-group" role="group">
-                                <a href="{{ url_for('view_node', name=config.name) }}" class="btn btn-sm btn-info">
+                                <a href="{{ url_for('nodes.view_node', name=config.name) }}" class="btn btn-sm btn-info">
                                     <i class="bi bi-eye"></i>
                                 </a>
                                 {% if config.status != 'running' %}
-                                <form method="POST" action="{{ url_for('start_node', name=config.name) }}" style="display: inline;">
+                                <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-success">
                                         <i class="bi bi-play"></i>
                                     </button>
                                 </form>
                                 {% else %}
-                                <form method="POST" action="{{ url_for('stop_node', name=config.name) }}" style="display: inline;">
+                                <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-danger">
                                         <i class="bi bi-stop"></i>
                                     </button>
                                 </form>
                                 {% endif %}
                             </div>
-                            <form method="POST" action="{{ url_for('delete_node', name=config.name) }}"
+                            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
                                   class="d-inline ms-1"
                                   onsubmit="return confirm({% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %});">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
@@ -112,7 +112,7 @@
         <div class="text-center py-5">
             <i class="bi bi-inbox" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
             <p class="mt-2 mb-3 text-secondary">No nodes configured yet</p>
-            <a href="{{ url_for('new_node') }}" class="btn btn-primary btn-sm">
+            <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary btn-sm">
                 <i class="bi bi-plus"></i> Create Node
             </a>
         </div>

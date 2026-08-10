@@ -7,14 +7,14 @@
     <h1 class="page-title">
         <i class="bi bi-upload"></i> Import Node
     </h1>
-    <a href="{{ url_for('list_nodes') }}" class="btn btn-secondary btn-sm">
+    <a href="{{ url_for('nodes.list_nodes') }}" class="btn btn-secondary btn-sm">
         <i class="bi bi-arrow-left"></i> Back
     </a>
 </div>
 
 <div class="row g-4">
     <div class="col-lg-8">
-        <form method="POST" action="{{ url_for('import_node') }}" enctype="multipart/form-data">
+        <form method="POST" action="{{ url_for('nodes.import_node') }}" enctype="multipart/form-data">
             <div class="card mb-4">
                 <div class="card-header">
                     <i class="bi bi-file-earmark-arrow-up"></i> Backup File

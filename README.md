@@ -272,11 +272,15 @@ Response:
 
 The application consists of:
 
-1. **Flask Backend** (`app.py`):
-   - Route handlers for web interface
-   - Docker client integration
-   - Configuration file management
-   - Node lifecycle management
+1. **Flask Backend** (`app.py` + `nodemanager/`):
+   - `app.py` — thin entrypoint: creates the Flask app, wires up auth, registers blueprints
+   - `nodemanager/auth.py` — login/logout, user store, session auth gate
+   - `nodemanager/nodes.py` — dashboard, node CRUD, view/logs/import/export
+   - `nodemanager/node_actions.py` — start/stop/restart and bulk equivalents (Docker daemon mutations)
+   - `nodemanager/api.py` — JSON `/api/*` endpoints
+   - `nodemanager/docker_utils.py`, `node_config.py`, `server_api.py`, `crypto.py` — shared helpers (Docker client/containers, reading config YAML, talking to the vantage6 server, RSA key generation)
+
+   See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module breakdown.
 
 2. **HTML Templates** (`templates/`):
    - `base.html` - Base template with navigation

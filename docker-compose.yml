@@ -21,6 +21,7 @@ services:
       - ${HOME}/vantage6-data:/data
       # Mount source code for hot reloading
       - ./app.py:/app/app.py
+      - ./nodemanager:/app/nodemanager
       - ./templates:/app/templates
       - ./static:/app/static
     environment:
