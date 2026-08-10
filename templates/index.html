@@ -7,11 +7,9 @@
     <h1 class="page-title">
         <i class="bi bi-grid-1x2"></i> Dashboard
     </h1>
-    {% if current_user.role == 'admin' %}
     <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
         <i class="bi bi-plus"></i> New Node
     </a>
-    {% endif %}
 </div>
 
 <div class="row g-3 mb-4">
@@ -83,7 +81,7 @@
                                 <a href="{{ url_for('nodes.view_node', name=config.name) }}" class="btn btn-sm btn-info">
                                     <i class="bi bi-eye"></i>
                                 </a>
-                                {% if current_user.role == 'admin' %}
+                                {% if current_user.role in ['admin', 'operator'] %}
                                 {% if config.status != 'running' %}
                                 <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" style="display: inline;">
                                     <button type="submit" class="btn btn-sm btn-success">
@@ -99,7 +97,6 @@
                                 {% endif %}
                                 {% endif %}
                             </div>
-                            {% if current_user.role == 'admin' %}
                             <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
                                   class="d-inline ms-1"
                                   onsubmit="return confirm({% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %});">
@@ -107,7 +104,6 @@
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </form>
-                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -118,11 +114,9 @@
         <div class="text-center py-5">
             <i class="bi bi-inbox" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
             <p class="mt-2 mb-3 text-secondary">No nodes configured yet</p>
-            {% if current_user.role == 'admin' %}
             <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary btn-sm">
                 <i class="bi bi-plus"></i> Create Node
             </a>
-            {% endif %}
         </div>
         {% endif %}
     </div>

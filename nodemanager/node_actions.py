@@ -7,22 +7,24 @@ import os
 import docker
 from pathlib import Path
 from flask import Blueprint, request, redirect, url_for, flash
+from flask_login import current_user
 
 from nodemanager.config import VANTAGE6_CONFIG_DIR, VANTAGE6_DATA_DIR, APPNAME
 from nodemanager.docker_utils import (
     get_docker_client, get_node_status, find_local_node_image,
     get_node_image_for_version, build_database_env_and_volumes, container_path_to_host_path
 )
-from nodemanager.node_config import get_node_configs
+from nodemanager.node_config import get_node_configs, can_access_config
 from nodemanager.server_api import get_server_version
-from nodemanager.auth import require_admin
+from nodemanager.auth import require_operator
+from nodemanager.audit import log_event
 
 actions_bp = Blueprint('actions', __name__)
 # Every route in this blueprint mutates container state via the Docker daemon -
-# gate the whole blueprint at once rather than decorating each route. Registered
-# here (not in auth.init_app) to avoid a circular import: auth.py must not import
-# from this module.
-actions_bp.before_request(require_admin)
+# gate the whole blueprint at once rather than decorating each route. Admin and
+# operator can both act here; only /users is admin-only. Registered here (not in
+# auth.init_app) to avoid a circular import: auth.py must not import from this module.
+actions_bp.before_request(require_operator)
 
 
 @actions_bp.route('/nodes/<name>/start', methods=['POST'])
@@ -31,7 +33,7 @@ def start_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -212,6 +214,7 @@ def start_node(name):
             extra_hosts={"host.docker.internal": "host-gateway"}
         )
 
+        log_event(current_user.id, current_user.role, 'node.start', node_name=name)
         flash(f'Node "{name}" started successfully', 'success')
 
     except Exception as e:
@@ -230,7 +233,7 @@ def stop_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -244,6 +247,7 @@ def stop_node(name):
 
         container = client.containers.get(container_name)
         container.stop()
+        log_event(current_user.id, current_user.role, 'node.stop', node_name=name)
         flash(f'Node "{name}" stopped successfully', 'success')
 
     except docker.errors.NotFound:
@@ -260,7 +264,7 @@ def restart_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -274,6 +278,7 @@ def restart_node(name):
 
         container = client.containers.get(container_name)
         container.restart()
+        log_event(current_user.id, current_user.role, 'node.restart', node_name=name)
         flash(f'Node "{name}" restarted successfully', 'success')
 
     except docker.errors.NotFound:
@@ -300,7 +305,7 @@ def bulk_start_nodes():
     errors = []
     for name in names:
         config = next((c for c in configs if c['name'] == name), None)
-        if not config:
+        if not config or not can_access_config(config, current_user.role, current_user.id):
             errors.append(f'{name}: not found')
             continue
         status = get_node_status(name, config['type'] == 'system')
@@ -406,6 +411,7 @@ def bulk_start_nodes():
                 auto_remove=False,
                 tty=True
             )
+            log_event(current_user.id, current_user.role, 'node.start', node_name=name, details='bulk')
             started.append(name)
         except Exception as e:
             errors.append(f'{name}: {str(e)}')
@@ -434,7 +440,7 @@ def bulk_stop_nodes():
     errors = []
     for name in names:
         config = next((c for c in configs if c['name'] == name), None)
-        if not config:
+        if not config or not can_access_config(config, current_user.role, current_user.id):
             errors.append(f'{name}: not found')
             continue
         try:
@@ -443,6 +449,7 @@ def bulk_stop_nodes():
 
             container = client.containers.get(container_name)
             container.stop()
+            log_event(current_user.id, current_user.role, 'node.stop', node_name=name, details='bulk')
             stopped.append(name)
         except docker.errors.NotFound:
             errors.append(f'{name}: not running')

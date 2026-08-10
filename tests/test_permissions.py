@@ -7,7 +7,10 @@ from werkzeug.security import generate_password_hash
 
 from nodemanager.auth import _load_users, _save_users
 from tests import conftest as conftest_module
-from tests.conftest import ADMIN_USERNAME, ADMIN_PASSWORD, VIEWER_USERNAME, VIEWER_PASSWORD, _login
+from tests.conftest import (
+    ADMIN_USERNAME, ADMIN_PASSWORD, OPERATOR_USERNAME, OPERATOR_PASSWORD,
+    VIEWER_USERNAME, VIEWER_PASSWORD, _login,
+)
 
 flask_app_module = conftest_module.flask_app_module
 
@@ -48,23 +51,27 @@ def test_viewer_can_list_nodes(viewer_client):
     assert resp.status_code == 200
 
 
-def test_viewer_blocked_from_new_node_form(viewer_client):
+def test_viewer_can_reach_new_node_form(viewer_client):
+    # Config-CRUD routes have no role decorator - viewer can create/manage
+    # nodes it owns, same as operator. See test_ownership.py for the
+    # ownership boundary itself (viewer blocked from *other* users' nodes).
     resp = viewer_client.get('/nodes/new')
-    assert resp.status_code == 302
+    assert resp.status_code == 200
 
 
-def test_viewer_blocked_from_export(viewer_client):
+def test_viewer_export_of_nonexistent_node_still_not_found(viewer_client):
+    # Reaching the route no longer depends on role, but a nonexistent node
+    # is still "not found" regardless.
     resp = viewer_client.get('/nodes/some-node/export')
     assert resp.status_code == 302
 
 
-def test_viewer_blocked_from_generate_key_with_json_403(viewer_client):
-    # Proves the /api/ branch of the shared forbid-helper fires for a route
-    # outside nodes/actions too, and that it's a JSON 403, not an HTML redirect.
+def test_viewer_can_reach_generate_key(viewer_client):
+    # Needed so a viewer creating its own encrypted node can generate a key pair.
     resp = viewer_client.post('/api/encryption/generate-key')
-    assert resp.status_code == 403
+    assert resp.status_code == 200
     body = resp.get_json()
-    assert body['success'] is False
+    assert body['success'] is True
 
 
 # --- Admin: unaffected by the new gates ---
@@ -74,7 +81,34 @@ def test_admin_can_reach_new_node_form(admin_client):
     assert resp.status_code == 200
 
 
-# --- User management: access control ---
+# --- Operator: full node access, but not user management ---
+
+def test_operator_can_reach_new_node_form(operator_client):
+    resp = operator_client.get('/nodes/new')
+    assert resp.status_code == 200
+
+
+def test_operator_can_reach_generate_key(operator_client):
+    resp = operator_client.post('/api/encryption/generate-key')
+    assert resp.status_code == 200
+
+
+def test_operator_blocked_from_start_node_is_not_blocked(operator_client):
+    # actions_bp allows both admin and operator - only viewer is blocked there.
+    # A nonexistent node still reaches the view (flashes "not found" + redirects
+    # to the node list), which is a different redirect target than the
+    # before_request block, so assert on the target rather than just the code.
+    resp = operator_client.post('/nodes/some-node/start')
+    assert resp.status_code == 302
+    assert resp.headers['Location'].endswith('/nodes')
+
+
+def test_operator_blocked_from_users_list(operator_client):
+    resp = operator_client.get('/users')
+    assert resp.status_code == 302
+
+
+# --- User management: access control (admin only, not operator) ---
 
 def test_viewer_blocked_from_users_list(viewer_client):
     resp = viewer_client.get('/users')
@@ -151,12 +185,26 @@ def test_rejects_invalid_role(admin_client):
 def test_rejects_duplicate_username(admin_client):
     before = _load_users()[VIEWER_USERNAME]['password_hash']
     admin_client.post('/users/new', data={
-        'username': VIEWER_USERNAME, 'password': 'differentpass123', 'role': 'admin',
+        'username': VIEWER_USERNAME, 'password': 'differentpass123', 'role': 'operator',
     })
     users = _load_users()
     # Existing account untouched - not overwritten by the rejected duplicate.
     assert users[VIEWER_USERNAME]['password_hash'] == before
     assert users[VIEWER_USERNAME]['role'] == 'viewer'
+
+
+# --- 'admin' is reserved: never creatable or grantable through the UI ---
+
+def test_cannot_create_user_with_admin_role(admin_client):
+    resp = admin_client.post('/users/new', data={
+        'username': 'sneaky', 'password': 'validpass123', 'role': 'admin',
+    })
+    assert 'sneaky' not in _load_users()
+
+
+def test_cannot_promote_operator_to_admin(admin_client):
+    resp = admin_client.post(f'/users/{OPERATOR_USERNAME}/role', data={'role': 'admin'})
+    assert _load_users()[OPERATOR_USERNAME]['role'] == 'operator'
 
 
 # --- Role changes take effect on the target's next request, not by magic ---
@@ -177,11 +225,14 @@ def test_demoted_admin_is_blocked_on_next_request():
     _login(admin1, ADMIN_USERNAME, ADMIN_PASSWORD)
     _login(admin2, 'admin2', 'admin2pass123')
 
-    assert admin2.get('/nodes/new').status_code == 200  # admin2 starts with access
+    # /users is admin-only regardless of role changes elsewhere - /nodes/new
+    # no longer distinguishes admin from viewer, since config-CRUD routes
+    # dropped their role decorator (viewer can create/manage its own nodes).
+    assert admin2.get('/users').status_code == 200  # admin2 starts with access
 
     # admin1 demotes admin2 out from under it.
     admin1.post('/users/admin2/role', data={'role': 'viewer'})
 
     # admin2's very next request, same session/cookie, reflects the change.
-    resp = admin2.get('/nodes/new')
+    resp = admin2.get('/users')
     assert resp.status_code == 302

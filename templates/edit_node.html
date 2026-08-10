@@ -20,6 +20,15 @@
 </div>
 {% endif %}
 
+{% set other_owners = config.owners | reject('equalto', current_user.id) | list %}
+{% if other_owners %}
+<div class="alert alert-info d-flex align-items-center gap-2 mb-4" style="font-size: 0.875rem;">
+    <i class="bi bi-people-fill"></i>
+    This node is also shared with <strong>{{ other_owners|join(', ') }}</strong>. Connection, database,
+    and encryption changes saved here apply to the node itself &mdash; they'll see them too.
+</div>
+{% endif %}
+
 {% set db = config.data.databases[0] if config.data.databases else {} %}
 {% set policies = config.data.policies or {} %}
 

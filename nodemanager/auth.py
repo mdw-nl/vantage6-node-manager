@@ -9,17 +9,25 @@ import re
 import secrets
 import yaml
 from functools import wraps
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 
 from nodemanager.config import VANTAGE6_CONFIG_DIR, USERS_FILE
+from nodemanager.node_config import release_nodes_owned_by
+from nodemanager.audit import log_event, read_events, events_to_csv
 
 auth_bp = Blueprint('auth', __name__)
 
 login_manager = LoginManager()
 
-ROLES = {'admin', 'viewer'}
+# 'admin' is reserved: it is written only by _seed_admin_user() at first boot
+# and is never an option in new_user()/change_user_role() below, so exactly
+# one account - whichever was created first - ever holds it. 'operator' can
+# act on nodes but not manage users; 'viewer' is read-only.
+ROLES = {'admin', 'operator', 'viewer'}
+ASSIGNABLE_ROLES = {'operator', 'viewer'}
+OPERATOR_ROLES = {'admin', 'operator'}
 
 
 def _looks_like_placeholder_secret(value):
@@ -126,19 +134,41 @@ def require_login():
     return login_manager.unauthorized()
 
 
-def _forbid_non_admin():
+def _forbid(allowed_roles, denied_message):
     # Checking is_authenticated first is a fail-closed backstop, not filler:
     # AnonymousUserMixin has no .role, so without this a route that somehow
     # bypasses require_login would 500 with an AttributeError here instead
     # of cleanly 403/redirecting. require_login (app-wide before_request)
     # always runs before this, so in normal operation current_user is
     # already authenticated by the time this is reached.
-    if not current_user.is_authenticated or current_user.role != 'admin':
+    if not current_user.is_authenticated or current_user.role not in allowed_roles:
         if request.path.startswith('/api/'):
-            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+            return jsonify({'success': False, 'error': denied_message}), 403
         flash('You do not have permission to perform this action.', 'error')
         return redirect(request.referrer or url_for('nodes.index'))
     return None
+
+
+def _forbid_non_operator():
+    return _forbid(OPERATOR_ROLES, 'Operator access required')
+
+
+def _forbid_non_admin():
+    return _forbid({'admin'}, 'Admin access required')
+
+
+def require_operator():
+    """Blueprint-level before_request gate for blueprints admins and operators can both use."""
+    return _forbid_non_operator()
+
+
+def operator_required(view):
+    """Per-route decorator for admin-or-operator routes inside otherwise-mixed blueprints."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        result = _forbid_non_operator()
+        return result if result is not None else view(*args, **kwargs)
+    return wrapped
 
 
 def require_admin():
@@ -147,7 +177,7 @@ def require_admin():
 
 
 def admin_required(view):
-    """Per-route decorator for admin-only routes inside otherwise-mixed blueprints."""
+    """Per-route decorator for admin-only routes (currently just user management)."""
     @wraps(view)
     def wrapped(*args, **kwargs):
         result = _forbid_non_admin()
@@ -167,7 +197,9 @@ def login():
         user_record = users.get(username)
 
         if user_record and check_password_hash(user_record['password_hash'], password):
-            login_user(User(username, user_record.get('role', 'viewer')))
+            role = user_record.get('role', 'viewer')
+            login_user(User(username, role))
+            log_event(username, role, 'user.login')
             flash(f'Welcome back, {username}!', 'success')
             next_url = request.form.get('next') or request.args.get('next')
             if (next_url and next_url.startswith('/')
@@ -175,6 +207,12 @@ def login():
                 return redirect(next_url)
             return redirect(url_for('nodes.index'))
 
+        # Logged even for a username that doesn't exist at all - the
+        # attempted username is recorded as-is (not validated/looked up)
+        # so this doubles as a record of scanning/guessing attempts, not
+        # just mistyped passwords on real accounts.
+        log_event(username, (user_record or {}).get('role'), 'user.login_failed',
+                   details='unknown username' if not user_record else 'wrong password')
         flash('Invalid username or password.', 'error')
 
     return render_template('login.html', next=request.args.get('next', ''))
@@ -196,6 +234,21 @@ def _valid_username(username):
     return bool(re.fullmatch(r'[A-Za-z0-9_-]{1,64}', username or ''))
 
 
+def user_exists(username):
+    """Public check for other modules (e.g. node-owner reassignment) that
+    need to validate a username without reaching into _load_users() directly."""
+    return username in _load_users()
+
+
+def list_assignable_usernames():
+    """Public: sorted usernames of non-admin accounts, for building the node
+    access-picker UI - admin already sees/manages every node regardless of
+    who else has access, so offering it as a checkbox would be meaningless
+    (and unchecking it could misleadingly suggest admin loses access)."""
+    users = _load_users()
+    return sorted(u for u, info in users.items() if info.get('role') in ASSIGNABLE_ROLES)
+
+
 @auth_bp.route('/users')
 @admin_required
 def list_users():
@@ -214,7 +267,7 @@ def new_user():
         if not _valid_username(username):
             flash('Username must be 1-64 characters: letters, numbers, underscore, hyphen.', 'error')
             return render_template('new_user.html')
-        if role not in ROLES:
+        if role not in ASSIGNABLE_ROLES:
             flash('Invalid role.', 'error')
             return render_template('new_user.html')
         if len(password) < 8:
@@ -228,6 +281,7 @@ def new_user():
 
         users[username] = {'password_hash': generate_password_hash(password), 'role': role}
         _save_users(users)
+        log_event(current_user.id, current_user.role, 'user.create', target_user=username, details=f'role={role}')
         flash(f'User "{username}" created.', 'success')
         return redirect(url_for('auth.list_users'))
 
@@ -252,6 +306,8 @@ def delete_user(username):
 
     del users[username]
     _save_users(users)
+    release_nodes_owned_by(username)
+    log_event(current_user.id, current_user.role, 'user.delete', target_user=username)
     flash(f'User "{username}" deleted.', 'success')
     return redirect(url_for('auth.list_users'))
 
@@ -264,7 +320,7 @@ def change_user_role(username):
         return redirect(url_for('auth.list_users'))
 
     new_role = request.form.get('role', '')
-    if new_role not in ROLES:
+    if new_role not in ASSIGNABLE_ROLES:
         flash('Invalid role.', 'error')
         return redirect(url_for('auth.list_users'))
 
@@ -273,13 +329,15 @@ def change_user_role(username):
         flash(f'User "{username}" not found.', 'error')
         return redirect(url_for('auth.list_users'))
 
-    if (users[username].get('role') == 'admin' and new_role != 'admin'
-            and _count_admins(users) <= 1):
+    if users[username].get('role') == 'admin' and _count_admins(users) <= 1:
+        # Redundant with 'admin' being unassignable above (new_role can never
+        # be 'admin'), but kept as defense-in-depth in case that ever changes.
         flash('Cannot demote the last remaining admin account.', 'error')
         return redirect(url_for('auth.list_users'))
 
     users[username]['role'] = new_role
     _save_users(users)
+    log_event(current_user.id, current_user.role, 'user.role_change', target_user=username, details=f'role={new_role}')
     flash(f'Updated role for "{username}".', 'success')
     return redirect(url_for('auth.list_users'))
 
@@ -299,8 +357,34 @@ def reset_user_password(username):
 
     users[username]['password_hash'] = generate_password_hash(new_password)
     _save_users(users)
+    log_event(current_user.id, current_user.role, 'user.password_reset', target_user=username)
     flash(f'Password updated for "{username}".', 'success')
     return redirect(url_for('auth.list_users'))
+
+
+# How many recent events the /audit page renders. The full history is always
+# available via /audit/export.csv - this cap just keeps a page load cheap
+# once the log has been accumulating for a while.
+AUDIT_PAGE_LIMIT = 300
+
+
+@auth_bp.route('/audit')
+@admin_required
+def audit_log():
+    events = read_events()
+    return render_template('audit.html', events=events[:AUDIT_PAGE_LIMIT], total=len(events),
+                            limit=AUDIT_PAGE_LIMIT)
+
+
+@auth_bp.route('/audit/export.csv')
+@admin_required
+def audit_export():
+    csv_data = events_to_csv(read_events())
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=audit_log.csv'}
+    )
 
 
 def init_app(app):

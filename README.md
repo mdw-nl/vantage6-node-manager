@@ -313,14 +313,31 @@ docker build -t vantage6-node-manager .
 
 ### Running Tests
 
-The permission/RBAC test suite is the only automated test coverage in this repo so far — it
-covers the login/role enforcement boundary, not the full app.
+The test suite covers the login/role/ownership enforcement boundary (`tests/test_permissions.py`,
+`tests/test_ownership.py`) — not the full app. It's safe to run anytime: `tests/conftest.py` points
+everything at a throwaway temp directory and resets it before every test, so it never touches your
+running container, its real node configs, or `users.yaml`.
+
+First time only, create the virtualenv and install dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest tests/ -v
+```
+
+After that, from the repo root:
+
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
+Drop `-v` for a terser pass/fail summary, or target one file or test:
+
+```bash
+python -m pytest tests/test_ownership.py -v
+python -m pytest tests/test_ownership.py::test_admin_delete_is_permanent -v
 ```
 
 ## Troubleshooting
@@ -395,17 +412,91 @@ This seeding only happens once; restarting the container never resets an existin
 
 ### Roles and managing users
 
-There are two roles:
-- **admin** — full access: create/edit/delete/import node configs, start/stop/restart nodes,
-  and manage users.
-- **viewer** — read-only: can see the dashboard, node list, node details, and logs, but every
-  mutating action is blocked server-side (not just hidden in the UI).
+There are three roles:
+- **admin** — reserved for the single account created automatically the first time the container
+  starts (see above). Only this account can access **Users** to add/remove accounts, change
+  roles, or reset passwords. It also has full node access. The admin role can't be granted to
+  anyone else through the UI — `/users/new` and the role-change control only ever offer
+  **operator** or **viewer**.
+- **operator** — can create/edit/import/export nodes it has access to, and start/stop/restart
+  them. "Delete" removes only itself from a node's access list rather than destroying it (see
+  "Node ownership" below). Cannot access the Users page.
+- **viewer** — same node-level access as operator, including "delete" meaning "leave," but can
+  never start/stop/restart a container — on any node, including its own. That's the one thing
+  distinguishing viewer from operator; both are otherwise scoped identically (see "Node ownership"
+  below).
 
-Once logged in as an admin, go to **Users** in the sidebar to add accounts, change a user's role,
-reset a password, or delete a user. A few safeguards are built in and will refuse the action with
-a flash message rather than fail silently: you can't delete or demote the sole remaining admin
-account, and you can't delete or change the role of the account you're currently logged in as
-(use a second admin account for that).
+Log in as the admin account and go to **Users** in the sidebar to add operator/viewer accounts,
+change a user's role between those two, reset a password, or delete a user. A few safeguards
+refuse the action with a flash message rather than failing silently: the admin account can't be
+deleted or demoted (there's always exactly one), and you can't delete or change the role of the
+account you're currently logged in as.
+
+### Node ownership
+
+Each node an operator or viewer creates or imports belongs to that account — nobody else sees it
+in the dashboard/node list, and direct links to it (view, edit, delete, export, and for operators
+also start/stop/restart) behave as if it doesn't exist for them. The admin account always sees and
+can manage every node regardless of who created it.
+
+A node can have more than one owner — e.g. two people at the same organization both watching the
+same physical node. Granting access isn't self-service: the account that creates a node becomes
+its first owner automatically, but adding anyone else has to go through admin. On the Nodes page,
+the admin account clicks the **Access** column for any node to open a checklist of every operator/
+viewer account (admin itself is never in the list — it always has access regardless) and check/
+uncheck who should have access, then saves the whole list in one go. Unchecking everyone makes the
+node admin-only ("Admin only") rather than deleting it.
+
+For anyone other than admin, **Delete just means "remove me"** — it takes the current user off
+that node's access list and leaves everything else untouched: the config file, the running
+container (if any), and every other owner's access all survive exactly as they were. This is true
+even for the account that originally created the node — once a node might be shared, one person's
+"delete" can't be allowed to destroy it out from under someone else who was granted access to it.
+Deleting a user account works the same way: it removes them from every node's owner list rather
+than leaving a dangling reference to a deleted account, and a node with other owners simply keeps
+them. Only the **admin** account's delete is a real, permanent one — it removes the config file
+itself (and its private key file too, if encryption was enabled, so nothing is left behind on
+disk). If a node ends up with nobody left in its access list (its last owner left, or admin
+deleted the last user who had access), it isn't gone — it just becomes admin-only, same as if
+admin had unchecked everyone, and stays that way until admin reassigns or permanently deletes it.
+
+Nothing is visible by default just because nobody owns it yet: a node with no recorded owner —
+whether it predates this feature, was created by admin, or had every owner removed/leave — is
+visible only to admin, not shared with every operator/viewer.
+
+Two nodes can never share a name, and two nodes can never share an API key either — creating,
+importing, *or editing* a node rejects both, with a message pointing at asking admin for access
+instead. (An edit is always allowed to keep the node's own existing API key — the check only
+blocks taking on someone *else's*.) The name check exists because the node's local name doubles as
+its Docker container name; the API key check exists because the API key is the node's actual
+identity on the real vantage6 server, so two separately-run containers authenticating with the
+same key would conflict there. If you want access to a node someone else already added, ask admin
+to add you as an owner — don't try to recreate it under a different name.
+
+The edit page also shows a heads-up banner whenever a node has other owners besides you, naming
+them — connection/database/encryption changes apply to the node itself, so anyone else who has
+access sees them too, not just a copy in your own view.
+
+### Activity log
+
+Admin has an **Activity Log** page (linked in the sidebar) recording who did what, and when, to
+nodes and user accounts: creating/editing/importing/deleting a node, leaving one, granting or
+revoking access, starting/stopping/restarting a container, creating/deleting a user or changing
+their role or password, and every login attempt — successful or failed, including the username
+typed on a failed one (even if it doesn't belong to a real account, so a scan/guessing attempt
+still shows up). Each entry records the timestamp (UTC), the acting account and its role, the
+action, and whichever node and/or target user it applied to. The page shows the most recent 300
+events; the **Download CSV** button on that page exports the complete history for anyone who needs
+to keep or search further back than that.
+
+Because a failed login's username is recorded exactly as typed rather than checked against
+anything, the CSV export defends against formula injection: a value starting with `=`, `+`, `-`,
+`@`, tab, or carriage return is prefixed with a `'` before being written out, so opening the
+export in Excel/Sheets can't be tricked into evaluating an attacker-typed "username" as a formula.
+
+This is a plain, append-only log (`audit.log`, stored alongside `users.yaml` and
+`node_owners.yaml`) rather than a full tamper-evident audit trail — good enough to answer "who
+changed this node's config last week," not a compliance-grade record.
 
 ### Where the account is stored
 

@@ -28,7 +28,7 @@
 
 <div class="card mb-4">
     <div class="card-body d-flex align-items-center gap-2 py-2">
-        {% if current_user.role == 'admin' %}
+        {% if current_user.role in ['admin', 'operator'] %}
         {% if config.status == 'running' %}
         <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-danger">
@@ -61,7 +61,6 @@
         {% endif %}
         {% endif %}
 
-        {% if current_user.role == 'admin' %}
         <div class="ms-auto">
             <a href="{{ url_for('nodes.edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-pencil"></i> Edit
@@ -70,14 +69,13 @@
                 <i class="bi bi-download"></i> Export
             </a>
             <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
-                  onsubmit="return confirm({% if config.status == 'running' %}'This node is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete this node configuration? This cannot be undone. Consider exporting a backup first.'{% endif %});"
+                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'This node is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete this node configuration? This cannot be undone. Consider exporting a backup first.'{% endif %}{% else %}'Remove this node from your list? It stays untouched for anyone else who already has access to it.'{% endif %});"
                   class="d-inline">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
-                    <i class="bi bi-trash"></i> Delete
+                    <i class="bi bi-trash"></i> {{ 'Delete' if current_user.role == 'admin' else 'Remove from my list' }}
                 </button>
             </form>
         </div>
-        {% endif %}
     </div>
 </div>
 
@@ -161,6 +159,9 @@
                     <dd class="col-sm-8">
                         <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">{{ config.type }}</span>
                     </dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Access</dt>
+                    <dd class="col-sm-8">{% if config.owners %}{{ config.owners|join(', ') }}{% else %}Admin only{% endif %}</dd>
 
                     <dt class="col-sm-4 text-secondary fw-normal">Config</dt>
                     <dd class="col-sm-8"><code>{{ config.path }}</code></dd>

@@ -25,12 +25,15 @@
                 <a class="nav-link {% if request.endpoint in ['nodes.list_nodes', 'nodes.view_node'] %}active{% endif %}" href="{{ url_for('nodes.list_nodes') }}">
                     <i class="bi bi-hdd-stack"></i> Nodes
                 </a>
-                {% if current_user.role == 'admin' %}
                 <a class="nav-link {% if request.endpoint == 'nodes.new_node' %}active{% endif %}" href="{{ url_for('nodes.new_node') }}">
                     <i class="bi bi-plus-square"></i> Create Node
                 </a>
+                {% if current_user.role == 'admin' %}
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('auth.') and 'user' in request.endpoint %}active{% endif %}" href="{{ url_for('auth.list_users') }}">
                     <i class="bi bi-people"></i> Users
+                </a>
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('auth.audit') %}active{% endif %}" href="{{ url_for('auth.audit_log') }}">
+                    <i class="bi bi-clock-history"></i> Activity Log
                 </a>
                 {% endif %}
                 {% endif %}

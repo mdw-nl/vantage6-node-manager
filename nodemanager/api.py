@@ -2,12 +2,12 @@
 history, server version lookup, RSA key generation) as well as external tools.
 """
 from flask import Blueprint, request, jsonify
+from flask_login import current_user
 
 from nodemanager.docker_utils import get_node_status, get_node_image_for_version
-from nodemanager.node_config import get_node_configs
+from nodemanager.node_config import get_node_configs, filter_visible_configs, can_access_config
 from nodemanager.server_api import get_server_version, get_node_health_status, get_running_tasks, get_task_history
 from nodemanager.crypto import generate_rsa_key_pair
-from nodemanager.auth import admin_required
 
 api_bp = Blueprint('api', __name__)
 
@@ -15,7 +15,7 @@ api_bp = Blueprint('api', __name__)
 @api_bp.route('/api/nodes')
 def api_list_nodes():
     """API endpoint to list all nodes"""
-    configs = get_node_configs()
+    configs = filter_visible_configs(get_node_configs(), current_user.role, current_user.id)
     for config in configs:
         status = get_node_status(config['name'], config['type'] == 'system')
         config['status'] = status
@@ -33,7 +33,7 @@ def api_node_health(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         return jsonify({'error': 'Node not found'}), 404
 
     health = get_node_health_status(config)
@@ -48,7 +48,7 @@ def api_node_tasks(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         return jsonify({'error': 'Node not found'}), 404
 
     per_page = request.args.get('limit', 10, type=int)
@@ -96,9 +96,12 @@ def api_server_version():
 
 
 @api_bp.route('/api/encryption/generate-key', methods=['POST'])
-@admin_required
 def api_generate_encryption_key():
-    """API endpoint to generate a new RSA key pair for encryption"""
+    """API endpoint to generate a new RSA key pair for encryption.
+
+    No role decorator: doesn't touch any existing node or the Docker daemon,
+    and a viewer creating its own encrypted node needs this too.
+    """
     try:
         private_key_pem, public_key_pem = generate_rsa_key_pair()
 

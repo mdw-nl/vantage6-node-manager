@@ -36,19 +36,21 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge bg-{{ 'primary' if record.role == 'admin' else 'secondary' }}">
+                            <span class="badge bg-{{ 'dark' if record.role == 'admin' else ('primary' if record.role == 'operator' else 'secondary') }}">
                                 {{ record.role }}
                             </span>
                         </td>
                         <td class="text-end" style="padding-right: 1.25rem;">
                             {% if username == current_user.id %}
                             <span class="text-secondary" style="font-size: 0.85rem;">&mdash;</span>
+                            {% elif record.role == 'admin' %}
+                            <span class="text-secondary" style="font-size: 0.85rem;">reserved</span>
                             {% else %}
                             <div class="d-flex gap-1 justify-content-end flex-wrap">
                                 <form method="POST" action="{{ url_for('auth.change_user_role', username=username) }}" class="d-inline">
-                                    <input type="hidden" name="role" value="{{ 'viewer' if record.role == 'admin' else 'admin' }}">
+                                    <input type="hidden" name="role" value="{{ 'viewer' if record.role == 'operator' else 'operator' }}">
                                     <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                        Make {{ 'viewer' if record.role == 'admin' else 'admin' }}
+                                        Make {{ 'viewer' if record.role == 'operator' else 'operator' }}
                                     </button>
                                 </form>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"

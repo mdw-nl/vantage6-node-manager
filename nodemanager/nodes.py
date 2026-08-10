@@ -3,19 +3,25 @@ import/export, and log viewing. Everything here reads/writes config YAML files o
 displays state - Docker container start/stop/restart lives in node_actions.py.
 """
 import os
+import re
 import io
 import yaml
 import zipfile
 import docker
 from pathlib import Path
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask_login import current_user
 from werkzeug.utils import secure_filename
 
 from nodemanager.config import VANTAGE6_CONFIG_DIR, APPNAME
 from nodemanager.docker_utils import get_docker_client, get_node_status, get_running_nodes
-from nodemanager.node_config import get_node_configs
+from nodemanager.node_config import (
+    get_node_configs, add_node_owner, set_node_owners, remove_node_owner,
+    clear_node_owner, filter_visible_configs, can_access_config
+)
 from nodemanager.server_api import get_running_tasks
-from nodemanager.auth import admin_required
+from nodemanager.auth import admin_required, user_exists, list_assignable_usernames
+from nodemanager.audit import log_event
 
 nodes_bp = Blueprint('nodes', __name__)
 
@@ -23,13 +29,23 @@ nodes_bp = Blueprint('nodes', __name__)
 @nodes_bp.route('/')
 def index():
     """Dashboard showing overview of all nodes"""
-    configs = get_node_configs()
+    configs = filter_visible_configs(get_node_configs(), current_user.role, current_user.id)
     running_nodes = get_running_nodes()
 
     # Enrich configs with running status
     for config in configs:
         status = get_node_status(config['name'], config['type'] == 'system')
         config['status'] = status
+
+    # get_running_nodes() scans Docker directly, independent of the configs
+    # list above - without this, it would show every running node container
+    # on the host by name, leaking other users' nodes through this widget
+    # even though `configs` itself is correctly filtered.
+    visible_container_names = {
+        f"{APPNAME}-{c['name']}-{'system' if c['type'] == 'system' else 'user'}"
+        for c in configs
+    }
+    running_nodes = [n for n in running_nodes if n['name'] in visible_container_names]
 
     return render_template('index.html',
                          configs=configs,
@@ -41,14 +57,15 @@ def index():
 @nodes_bp.route('/nodes')
 def list_nodes():
     """List all node configurations"""
-    configs = get_node_configs()
+    configs = filter_visible_configs(get_node_configs(), current_user.role, current_user.id)
 
     # Add status to each config
     for config in configs:
         status = get_node_status(config['name'], config['type'] == 'system')
         config['status'] = status
 
-    return render_template('nodes.html', configs=configs)
+    usernames = list_assignable_usernames() if current_user.role == 'admin' else None
+    return render_template('nodes.html', configs=configs, usernames=usernames)
 
 
 def _process_encryption_form(name, current_private_key=None):
@@ -102,15 +119,76 @@ def _process_encryption_form(name, current_private_key=None):
     return False, None
 
 
+def _valid_node_name(name):
+    return bool(re.fullmatch(r'[A-Za-z0-9_-]{1,64}', name or ''))
+
+
+def _api_key_conflict_error(name, api_key, configs):
+    """Shared by _node_conflict_error() (create/import) and edit_node():
+    two node-manager entries under *different* names but the same api_key
+    would both run as independent Docker containers authenticating to the
+    real vantage6 server as the same node identity - the server doesn't
+    know or care about this app's local names, only the api_key, so this
+    causes connection/task conflicts on the server side. Sharing access to
+    one node is an ownership question (see node_config.py's owners list),
+    not something a second local config - or a hijacked existing one -
+    can safely do. `name` is excluded from the search so a node is always
+    allowed to keep (or be edited back to) its own api_key.
+    """
+    if not api_key:
+        return None
+    existing = next((c for c in configs
+                      if c['name'] != name and (c.get('data') or {}).get('api_key') == api_key), None)
+    if existing:
+        return (f'This API key is already used by node "{existing["name"]}". Ask an admin to grant you '
+                'access to that node instead of creating a second, conflicting connection to it.')
+    return None
+
+
+def _node_conflict_error(name, api_key, configs=None):
+    """Shared validation for new_node()/_write_imported_config(): returns an
+    error string, or None if safe to proceed.
+
+    Two independent checks:
+    - name: also a filesystem-path-safety check. name ends up interpolated
+      straight into a path (VANTAGE6_CONFIG_DIR / f'{name}.yaml', and
+      private-key filenames derived from it) - without this, a name like
+      '../users' resolves outside VANTAGE6_CONFIG_DIR entirely, onto
+      USERS_FILE itself.
+    - api_key: see _api_key_conflict_error().
+
+    Both point the user at asking an admin for access rather than at
+    rename/delete - the fix for "I want to watch a node someone else
+    already added" is being granted ownership of the existing entry, not
+    creating a second, conflicting one.
+    """
+    if not _valid_node_name(name):
+        return 'Node name must be 1-64 characters: letters, numbers, underscore, hyphen.'
+    configs = get_node_configs() if configs is None else configs
+    if any(c['name'] == name for c in configs):
+        return f'A node named "{name}" already exists. Ask an admin to grant you access to it instead.'
+    return _api_key_conflict_error(name, api_key, configs)
+
+
 @nodes_bp.route('/nodes/new', methods=['GET', 'POST'])
-@admin_required
 def new_node():
-    """Create a new node configuration"""
+    """Create a new node configuration.
+
+    No role decorator: any authenticated role (admin/operator/viewer) can
+    create a node, which it then owns. Container control (start/stop/
+    restart) stays admin+operator only via actions_bp's own gate - creating
+    a config is a viewer-safe, Docker-daemon-free operation.
+    """
     if request.method == 'POST':
         try:
             name = request.form.get('name')
-            server_url = request.form.get('server_url')
             api_key = request.form.get('api_key')
+            conflict_error = _node_conflict_error(name, api_key)
+            if conflict_error:
+                flash(conflict_error, 'error')
+                return render_template('new_node.html')
+
+            server_url = request.form.get('server_url')
             port = request.form.get('port')
             api_path = request.form.get('api_path', '/api')
             # Use persistent data directory instead of /tmp for container environments
@@ -170,6 +248,8 @@ def new_node():
             config_file = VANTAGE6_CONFIG_DIR / f'{name}.yaml'
             with open(config_file, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
+            add_node_owner(name, current_user.id)
+            log_event(current_user.id, current_user.role, 'node.create', node_name=name)
 
             if encryption_enabled:
                 flash(f'Node configuration "{name}" created successfully with encryption enabled!', 'success')
@@ -184,7 +264,6 @@ def new_node():
 
 
 @nodes_bp.route('/nodes/<name>/edit', methods=['GET', 'POST'])
-@admin_required
 def edit_node(name):
     """
     Edit an existing node's configuration in place.
@@ -199,7 +278,7 @@ def edit_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -215,6 +294,10 @@ def edit_node(name):
 
             api_key = request.form.get('api_key')
             if api_key:
+                conflict_error = _api_key_conflict_error(name, api_key, configs)
+                if conflict_error:
+                    flash(conflict_error, 'error')
+                    return render_template('edit_node.html', config=config)
                 data['api_key'] = api_key
 
             db_label = request.form.get('db_label', 'default')
@@ -241,6 +324,7 @@ def edit_node(name):
 
             with open(config['path'], 'w') as f:
                 yaml.dump(data, f, default_flow_style=False)
+            log_event(current_user.id, current_user.role, 'node.edit', node_name=name)
 
             if get_node_status(name, config['type'] == 'system') == 'running':
                 flash(f'Node configuration "{name}" updated. Restart the node for the changes to take effect.', 'success')
@@ -260,7 +344,7 @@ def view_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -302,7 +386,7 @@ def view_logs(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         return jsonify({'error': 'Node not found'}), 404
 
     client = get_docker_client()
@@ -332,31 +416,64 @@ def view_logs(name):
         return jsonify({'error': str(e)}), 500
 
 
+def _delete_node_files(config):
+    """Admin-only real delete: removes the config file and, if encryption
+    was enabled, its private key file too. Without this the .pem lingers
+    in private_keys/ forever with nothing left pointing at it - an
+    orphaned secret that just accumulates on disk across node deletions.
+    """
+    encryption_config = (config.get('data') or {}).get('encryption') or {}
+    private_key_rel = encryption_config.get('private_key')
+    if private_key_rel:
+        private_key_path = VANTAGE6_CONFIG_DIR.parent / private_key_rel
+        if private_key_path.exists():
+            private_key_path.unlink()
+    os.remove(config['path'])
+
+
 @nodes_bp.route('/nodes/<name>/delete', methods=['POST'])
-@admin_required
 def delete_node(name):
-    """Delete a node configuration"""
+    """"Delete" a node configuration - what this actually does depends on role.
+
+    admin: a real, permanent delete - removes the config file itself and
+    clears every owner. admin is the only role whose "delete" can affect
+    other people's access, since it's the one role responsible for the
+    underlying node's lifecycle.
+
+    Everyone else: removes only the current user from the owner list, same
+    as admin unchecking them in the Access picker. The config file and
+    every other owner's access are untouched - this holds even for a node
+    the current user originally created, since once a node is shared,
+    nobody's personal "delete" should be able to yank it out from under
+    someone else who was granted access to the same physical node.
+    """
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
-    try:
-        # Delete configuration file. This only removes the config from the
-        # node manager - if the node's container is still running, it is
-        # left untouched and keeps running unmanaged.
-        os.remove(config['path'])
-        flash(f'Node configuration "{name}" deleted successfully', 'success')
-    except Exception as e:
-        flash(f'Error deleting configuration: {str(e)}', 'error')
+    if current_user.role == 'admin':
+        try:
+            # This only removes the config from the node manager - if the
+            # node's container is still running, it is left untouched and
+            # keeps running unmanaged.
+            _delete_node_files(config)
+            clear_node_owner(name)
+            log_event(current_user.id, current_user.role, 'node.delete', node_name=name)
+            flash(f'Node configuration "{name}" deleted successfully', 'success')
+        except Exception as e:
+            flash(f'Error deleting configuration: {str(e)}', 'error')
+    else:
+        remove_node_owner(name, current_user.id)
+        log_event(current_user.id, current_user.role, 'node.leave', node_name=name)
+        flash(f'Node "{name}" removed from your list. It is untouched for anyone else with access to it.', 'success')
 
     return redirect(url_for('nodes.list_nodes'))
 
 
 @nodes_bp.route('/nodes/<name>/export')
-@admin_required
 def export_node(name):
     """
     Export a node's config as a download. Plain .yaml when there's nothing
@@ -366,7 +483,7 @@ def export_node(name):
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
-    if not config:
+    if not config or not can_access_config(config, current_user.role, current_user.id):
         flash(f'Node configuration "{name}" not found', 'error')
         return redirect(url_for('nodes.list_nodes'))
 
@@ -403,19 +520,24 @@ def export_node(name):
 
 
 def _write_imported_config(name, config_data):
-    """Shared final step for import_node: refuse name collisions, write the yaml"""
-    existing_configs = get_node_configs()
-    if any(c['name'] == name for c in existing_configs):
-        return f'A node named "{name}" already exists. Rename or delete it first, then retry the import.'
+    """Shared final step for import_node: validate the name, refuse collisions, write the yaml.
+
+    name here comes from an uploaded filename (Path(...).stem) - user-controlled,
+    same as new_node()'s form field, so it needs the same validation.
+    """
+    conflict_error = _node_conflict_error(name, config_data.get('api_key'))
+    if conflict_error:
+        return conflict_error
 
     config_file = VANTAGE6_CONFIG_DIR / f'{name}.yaml'
     with open(config_file, 'w') as f:
         yaml.dump(config_data, f, default_flow_style=False)
+    add_node_owner(name, current_user.id)
+    log_event(current_user.id, current_user.role, 'node.import', node_name=name)
     return None
 
 
 @nodes_bp.route('/nodes/import', methods=['GET', 'POST'])
-@admin_required
 def import_node():
     """Import a node config from a previously exported .yaml file or .zip backup"""
     if request.method == 'GET':
@@ -501,7 +623,6 @@ def import_node():
 
 
 @nodes_bp.route('/nodes/bulk/delete', methods=['POST'])
-@admin_required
 def bulk_delete_nodes():
     names = request.form.getlist('names')
     if not names:
@@ -510,21 +631,80 @@ def bulk_delete_nodes():
 
     configs = get_node_configs()
     deleted = []
+    removed = []
     errors = []
     for name in names:
         config = next((c for c in configs if c['name'] == name), None)
-        if not config:
+        if not config or not can_access_config(config, current_user.role, current_user.id):
+            # Template only ever offers checkboxes for visible nodes - this
+            # guards against a hand-crafted POST body naming someone else's node.
             errors.append(f'{name}: not found')
             continue
-        try:
-            os.remove(config['path'])
-            deleted.append(name)
-        except Exception as e:
-            errors.append(f'{name}: {str(e)}')
+        if current_user.role == 'admin':
+            # Real delete - see delete_node()'s docstring for why this
+            # differs by role.
+            try:
+                _delete_node_files(config)
+                clear_node_owner(name)
+                log_event(current_user.id, current_user.role, 'node.delete', node_name=name, details='bulk')
+                deleted.append(name)
+            except Exception as e:
+                errors.append(f'{name}: {str(e)}')
+        else:
+            remove_node_owner(name, current_user.id)
+            log_event(current_user.id, current_user.role, 'node.leave', node_name=name, details='bulk')
+            removed.append(name)
 
     if deleted:
         flash(f'Deleted {len(deleted)} node(s): {", ".join(deleted)}', 'success')
+    if removed:
+        flash(f'Removed {len(removed)} node(s) from your list: {", ".join(removed)}', 'success')
     for err in errors:
         flash(err, 'error')
+
+    return redirect(url_for('nodes.list_nodes'))
+
+
+@nodes_bp.route('/nodes/<name>/owners', methods=['POST'])
+@admin_required
+def update_node_owners(name):
+    """Admin-only: set the full list of users who own this node. A node can
+    have more than one owner (e.g. two people at the same hospital both
+    watching the same physical node) - this replaces the entire set in one
+    submit rather than adding/removing one at a time. Also the drain for
+    the "unclaimed" pool - without this, nodes with no owner recorded
+    (created before this feature existed, or released via delete_user())
+    would stay admin-only forever with no way to hand them to anyone.
+    """
+    configs = get_node_configs()
+    config = next((c for c in configs if c['name'] == name), None)
+    if not config:
+        flash(f'Node configuration "{name}" not found', 'error')
+        return redirect(url_for('nodes.list_nodes'))
+
+    new_owners = [u.strip() for u in request.form.getlist('owners') if u.strip()]
+    unknown = [u for u in new_owners if not user_exists(u)]
+    if unknown:
+        flash(f'Unknown user(s): {", ".join(unknown)}.', 'error')
+        return redirect(url_for('nodes.list_nodes'))
+
+    old_owners = set(config.get('owners', []))
+    set_node_owners(name, new_owners)
+
+    added = sorted(set(new_owners) - old_owners)
+    dropped = sorted(old_owners - set(new_owners))
+    detail_parts = []
+    if added:
+        detail_parts.append(f"added: {', '.join(added)}")
+    if dropped:
+        detail_parts.append(f"removed: {', '.join(dropped)}")
+    if detail_parts:
+        log_event(current_user.id, current_user.role, 'node.access.update',
+                   node_name=name, details='; '.join(detail_parts))
+
+    if new_owners:
+        flash(f'Node "{name}" owners set to: {", ".join(new_owners)}.', 'success')
+    else:
+        flash(f'Node "{name}" has no owners now - only admin can see it.', 'success')
 
     return redirect(url_for('nodes.list_nodes'))

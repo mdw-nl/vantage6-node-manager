@@ -35,8 +35,9 @@
                         <label for="role" class="form-label">Role</label>
                         <select class="form-select" id="role" name="role" required>
                             <option value="viewer" selected>Viewer &mdash; can observe nodes, no actions</option>
-                            <option value="admin">Admin &mdash; full access</option>
+                            <option value="operator">Operator &mdash; can create/edit/start/stop nodes, no user management</option>
                         </select>
+                        <div class="form-text">The admin role is reserved for the account created when this instance first started, and can't be granted here.</div>
                     </div>
                     <button type="submit" class="btn btn-primary w-100">Create user</button>
                 </form>
