@@ -22,37 +22,38 @@ def container_path_to_host_path(container_path):
     Returns:
         Host path that Docker can mount, or None if conversion not possible
     """
-    container_path_str = str(container_path)
-
     # Get the actual host HOME directory from environment variable
     # When running in Docker, this should be set to the host's HOME
     host_home = os.environ.get('HOST_HOME', str(Path.home()))
+    path = Path(container_path)
 
-    # Check if path is in the user config directory
-    if container_path_str.startswith('/root/.config/vantage6'):
+    # Each (container_prefix, host_base) pair below is a mount point: everything
+    # under container_prefix inside this container maps to the same relative
+    # path under host_base on the real host. Compared as Path objects (not raw
+    # string prefixes) so this handles container_path being the prefix directory
+    # itself, with no trailing slash and nothing after it - e.g. VANTAGE6_SYSTEM_
+    # CONFIG_DIR passed as-is for a *system*-type node. A string .replace() of
+    # 'prefix/' never matches that case, leaving relative_path as the original
+    # absolute container path - and joining an absolute path onto a pathlib Path
+    # resets it entirely, silently producing the unmounted container path back
+    # out as if it were a valid host path. Path.relative_to() has no such
+    # footgun: relative_to() on an exact match returns '.', which joins onto
+    # host_base as a no-op.
+    mounts = [
         # /root/.config/vantage6 is mounted from ${HOME}/.config/vantage6 on host
-        # Convert: /root/.config/vantage6/node/file.yaml -> ${HOME}/.config/vantage6/node/file.yaml
-        relative_path = container_path_str.replace('/root/.config/vantage6/', '')
-        host_path = Path(host_home) / '.config' / 'vantage6' / relative_path
-        return str(host_path)
-
-    # Check if path is in the system config directory
-    elif container_path_str.startswith('/etc/vantage6/node'):
+        (Path('/root/.config/vantage6'), Path(host_home) / '.config' / 'vantage6'),
         # /etc/vantage6/node is mounted from ${HOME}/.config/vantage6-system on host
-        relative_path = container_path_str.replace('/etc/vantage6/node/', '')
-        host_path = Path(host_home) / '.config' / 'vantage6-system' / relative_path
-        return str(host_path)
-
-    # Check if path is in the data directory
-    elif container_path_str.startswith('/data/'):
+        (Path('/etc/vantage6/node'), Path(host_home) / '.config' / 'vantage6-system'),
         # /data is mounted from ${HOME}/vantage6-data on host
-        relative_path = container_path_str.replace('/data/', '')
-        host_path = Path(host_home) / 'vantage6-data' / relative_path
-        return str(host_path)
+        (Path('/data'), Path(host_home) / 'vantage6-data'),
+    ]
+
+    for container_prefix, host_base in mounts:
+        if path == container_prefix or container_prefix in path.parents:
+            return str(host_base / path.relative_to(container_prefix))
 
     # Path is not in a known mounted volume
-    else:
-        return None
+    return None
 
 
 def build_database_env_and_volumes(databases):

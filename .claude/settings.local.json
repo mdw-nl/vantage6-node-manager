@@ -126,7 +126,9 @@
       "Bash(rm -f /tmp/cookies*.txt)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" 'http://localhost:15001/?__debugger__=yes&cmd=resource&f=debugger.js')",
       "Bash(curl -s -c /tmp/cookies4.txt -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:15003/login -d \"username=admin&password=hunter2correct\")",
-      "Bash(curl -s -b /tmp/cookies4.txt -o /dev/null -w \"authenticated /: %{http_code}\\\\n\" http://localhost:15003/)"
+      "Bash(curl -s -b /tmp/cookies4.txt -o /dev/null -w \"authenticated /: %{http_code}\\\\n\" http://localhost:15003/)",
+      "Bash(.venv/bin/python -m pytest tests/ -q)",
+      "Bash(.venv/bin/python *)"
     ]
   }
 }

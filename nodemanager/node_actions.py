@@ -381,13 +381,32 @@ def bulk_start_nodes():
                 "/var/run/docker.sock:/var/run/docker.sock"
             ]
 
+            # Mount private key file if encryption is enabled - same logic as
+            # start_node(). Without the matching volume mount, an encrypted
+            # node would boot with PRIVATE_KEY pointed at a path that was
+            # never actually mounted into the container.
+            encryption_config = config['data'].get('encryption', {})
+            if encryption_config.get('enabled') and encryption_config.get('private_key'):
+                private_key_relative = encryption_config['private_key']
+                private_key_config_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
+                private_key_host_path = container_path_to_host_path(private_key_config_path)
+                if private_key_host_path:
+                    volumes.append(f"{private_key_host_path}:/mnt/private_key.pem")
+                else:
+                    errors.append(f'{name}: could not resolve host path for private key '
+                                   f'"{private_key_config_path}"')
+                    continue
+
             env = {
                 'DATA_VOLUME_NAME': data_volume.name,
                 'VPN_VOLUME_NAME': vpn_volume.name,
                 'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
                 'SSH_SQUID_VOLUME_NAME': squid_volume.name,
-                'PRIVATE_KEY': '/mnt/private_key.pem'
             }
+
+            # Only set PRIVATE_KEY env var when encryption is enabled - same as start_node().
+            if encryption_config.get('enabled'):
+                env['PRIVATE_KEY'] = '/mnt/private_key.pem'
 
             db_env, db_volumes = build_database_env_and_volumes(config['data'].get('databases'))
             env.update(db_env)
@@ -409,7 +428,8 @@ def bulk_start_nodes():
                 environment=env,
                 name=container_name,
                 auto_remove=False,
-                tty=True
+                tty=True,
+                extra_hosts={"host.docker.internal": "host-gateway"}
             )
             log_event(current_user.id, current_user.role, 'node.start', node_name=name, details='bulk')
             started.append(name)
