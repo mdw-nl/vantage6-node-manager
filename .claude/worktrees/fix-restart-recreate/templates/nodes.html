@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Nodes - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="page-title">
+        <i class="bi bi-hdd-stack"></i> Nodes
+    </h1>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('nodes.import_node') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-upload"></i> Import Node
+        </a>
+        <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> New Node
+        </a>
+    </div>
+</div>
+
+{% if configs %}
+<div id="bulkActions" class="card bulk-bar mb-3" style="display: none;">
+    <div class="card-body d-flex align-items-center gap-2">
+        <span id="selectedCount" class="me-2 fw-bold" style="font-size: 0.85rem;">0 selected</span>
+        {% if current_user.role in ['admin', 'operator'] %}
+        <button type="button" class="btn btn-sm btn-success" onclick="bulkStart()">
+            <i class="bi bi-play-fill"></i> Start
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="bulkStop()">
+            <i class="bi bi-stop-fill"></i> Stop
+        </button>
+        {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-danger" style="border-color: rgba(255,255,255,.2); color: #ff7b72;" onclick="bulkDelete()">
+            <i class="bi bi-trash"></i> Delete
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ul"></i> All Nodes ({{ configs|length }})</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 3%; padding-left: 1.25rem;">
+                            <input type="checkbox" class="form-check-input" id="selectAll" onclick="toggleSelectAll(this)">
+                        </th>
+                        <th style="width: 15%;">Name</th>
+                        <th style="width: 10%;">Status</th>
+                        <th style="width: 7%;">Type</th>
+                        {% if current_user.role == 'admin' %}
+                        <th style="width: 12%;">Access</th>
+                        {% endif %}
+                        <th style="width: 8%;">Encryption</th>
+                        <th style="width: 15%;">Server</th>
+                        <th style="width: 10%;">Databases</th>
+                        <th style="width: 22%;" class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for config in configs %}
+                    <tr>
+                        <td style="padding-left: 1.25rem;">
+                            <input type="checkbox" class="form-check-input node-checkbox"
+                                   value="{{ config.name }}" data-status="{{ config.status }}"
+                                   onclick="updateBulkActions()">
+                        </td>
+                        <td>
+                            <strong>{{ config.name }}</strong>
+                            <br>
+                            <small class="text-secondary" style="font-size: 0.72rem;">{{ config.path }}</small>
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ config.status }}"
+                                  id="health-badge-{{ config.name }}"
+                                  data-node-name="{{ config.name }}">
+                                {% if config.status == 'running' %}
+                                    <i class="bi bi-play-fill"></i> Running
+                                {% elif config.status == 'stopped' %}
+                                    <i class="bi bi-stop-fill"></i> Stopped
+                                {% else %}
+                                    <i class="bi bi-question-circle"></i> Unknown
+                                {% endif %}
+                            </span>
+                            <span class="badge bg-warning ms-1" id="task-badge-{{ config.name }}" style="display: none;">
+                                <i class="bi bi-cpu-fill"></i> <span class="task-badge-count"></span>
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">
+                                {{ config.type }}
+                            </span>
+                        </td>
+                        {% if current_user.role == 'admin' %}
+                        <td>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                                        style="font-size: 0.75rem;" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                                    {% if config.owners %}{{ config.owners|join(', ') }}{% else %}Admin only{% endif %}
+                                </button>
+                                <form method="POST" action="{{ url_for('nodes.update_node_owners', name=config.name) }}"
+                                      class="dropdown-menu p-2" style="min-width: 12rem;">
+                                    {% for username in usernames %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="owners"
+                                               value="{{ username }}" id="owner-{{ config.name }}-{{ username }}"
+                                               {% if username in config.owners %}checked{% endif %}>
+                                        <label class="form-check-label" style="font-size: 0.85rem;"
+                                               for="owner-{{ config.name }}-{{ username }}">{{ username }}</label>
+                                    </div>
+                                    {% endfor %}
+                                    <button type="submit" class="btn btn-sm btn-primary mt-2 w-100">Save</button>
+                                </form>
+                            </div>
+                        </td>
+                        {% endif %}
+                        <td>
+                            {% if config.data.encryption and config.data.encryption.enabled %}
+                                <span class="badge bg-success">
+                                    <i class="bi bi-lock-fill"></i> On
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary">
+                                    <i class="bi bi-unlock"></i> Off
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ config.data.server_url }}" target="_blank" style="font-size: 0.85rem;">
+                                {{ config.data.server_url }}
+                                <i class="bi bi-arrow-up-right" style="font-size: 0.7rem;"></i>
+                            </a>
+                            {% if config.data.port %}
+                            <br><small class="text-secondary">:{{ config.data.port }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if config.data.databases %}
+                                <span class="badge bg-info">{{ config.data.databases|length }}</span>
+                                {% for db in config.data.databases[:2] %}
+                                    <br><small class="text-secondary">{{ db.label }}</small>
+                                {% endfor %}
+                                {% if config.data.databases|length > 2 %}
+                                    <br><small class="text-secondary">+{{ config.data.databases|length - 2 }} more</small>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-secondary">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('nodes.view_node', name=config.name) }}"
+                                   class="btn btn-sm btn-info" title="View">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{{ url_for('nodes.edit_node', name=config.name) }}"
+                                   class="btn btn-sm btn-outline-secondary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                {% if current_user.role in ['admin', 'operator'] %}
+                                {% if config.status == 'running' %}
+                                <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-danger" title="Stop">
+                                        <i class="bi bi-stop-fill"></i>
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ url_for('actions.restart_node', name=config.name) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-warning" title="Restart">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </form>
+                                {% else %}
+                                <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-success" title="Start">
+                                        <i class="bi bi-play-fill"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% endif %}
+                            </div>
+                            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
+                                  class="d-inline ms-1"
+                                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting will stop and remove its container plus all its volumes (including node data). This cannot be undone. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This also removes its Docker container and volumes (including node data). This cannot be undone.'{% endif %}{% else %}'Remove node \'{{ config.name }}\' from your list? It stays untouched for anyone else who already has access to it.'{% endif %});">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        title="{{ 'Delete' if current_user.role == 'admin' else 'Remove from my list' }}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if current_user.role in ['admin', 'operator'] %}
+<form id="bulkStartForm" method="POST" action="{{ url_for('actions.bulk_start_nodes') }}" style="display:none;"></form>
+<form id="bulkStopForm" method="POST" action="{{ url_for('actions.bulk_stop_nodes') }}" style="display:none;"></form>
+{% endif %}
+<form id="bulkDeleteForm" method="POST" action="{{ url_for('nodes.bulk_delete_nodes') }}" style="display:none;"></form>
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
+        <h5 class="mt-3" style="text-transform: none; letter-spacing: normal; color: var(--text-primary);">No nodes configured</h5>
+        <p class="text-secondary mb-3" style="font-size: 0.875rem;">Get started by creating your first vantage6 node.</p>
+        <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> Create Node
+        </a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const IS_ADMIN = {{ 'true' if current_user.role == 'admin' else 'false' }};
+
+    function getCheckedNames() {
+        return Array.from(document.querySelectorAll('.node-checkbox:checked')).map(cb => cb.value);
+    }
+
+    function toggleSelectAll(master) {
+        document.querySelectorAll('.node-checkbox').forEach(cb => { cb.checked = master.checked; });
+        updateBulkActions();
+    }
+
+    function updateBulkActions() {
+        const checked = document.querySelectorAll('.node-checkbox:checked');
+        const total = document.querySelectorAll('.node-checkbox');
+        const bar = document.getElementById('bulkActions');
+        const countEl = document.getElementById('selectedCount');
+        const selectAll = document.getElementById('selectAll');
+
+        bar.style.display = checked.length > 0 ? '' : 'none';
+        countEl.textContent = checked.length + ' selected';
+        selectAll.checked = checked.length === total.length && total.length > 0;
+        selectAll.indeterminate = checked.length > 0 && checked.length < total.length;
+    }
+
+    function submitBulkForm(formId, names) {
+        const form = document.getElementById(formId);
+        form.innerHTML = '';
+        names.forEach(name => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'names';
+            input.value = name;
+            form.appendChild(input);
+        });
+        form.submit();
+    }
+
+    function bulkStart() {
+        const names = getCheckedNames();
+        if (names.length === 0) return;
+        if (!confirm('Start ' + names.length + ' selected node(s)?')) return;
+        submitBulkForm('bulkStartForm', names);
+    }
+
+    function bulkStop() {
+        const names = getCheckedNames();
+        if (names.length === 0) return;
+        if (!confirm('Stop ' + names.length + ' selected node(s)?')) return;
+        submitBulkForm('bulkStopForm', names);
+    }
+
+    function bulkDelete() {
+        const names = getCheckedNames();
+        if (names.length === 0) return;
+        const message = IS_ADMIN
+            ? 'Delete ' + names.length + ' selected node(s)? This also stops and removes their Docker containers and volumes (including node data). This cannot be undone.'
+            : 'Remove ' + names.length + ' selected node(s) from your list? They stay untouched for anyone else who already has access.';
+        if (!confirm(message)) return;
+        submitBulkForm('bulkDeleteForm', names);
+    }
+
+    const HEALTH_ICONS = {
+        online:       '<i class="bi bi-play-fill"></i> Running',
+        starting:     '<i class="bi bi-hourglass-split"></i> Starting',
+        reconnecting: '<i class="bi bi-arrow-repeat"></i> Reconnecting',
+        error:        '<i class="bi bi-exclamation-triangle-fill"></i> Error',
+        stopped:      '<i class="bi bi-stop-fill"></i> Stopped',
+        unknown:      '<i class="bi bi-question-circle"></i> Unknown',
+    };
+
+    const HEALTH_CLASSES = {
+        online:       'status-running',
+        starting:     'status-starting',
+        reconnecting: 'status-reconnecting',
+        error:        'status-error',
+        stopped:      'status-stopped',
+        unknown:      'status-unknown',
+    };
+
+    function updateHealthBadge(badge, health) {
+        badge.className = 'status-badge ' + (HEALTH_CLASSES[health.status] || 'status-unknown');
+        badge.innerHTML = HEALTH_ICONS[health.status] || HEALTH_ICONS.unknown;
+        badge.title = health.message || '';
+
+        const taskBadge = document.getElementById('task-badge-' + health.name);
+        if (!taskBadge) return;
+        const tasks = health.tasks || [];
+        if (tasks.length > 0) {
+            taskBadge.style.display = '';
+            taskBadge.querySelector('.task-badge-count').textContent =
+                tasks.length === 1 ? 'Running task' : `Running ${tasks.length} tasks`;
+            taskBadge.title = tasks.map(t => `run ${t.run_id}: ${t.image}`).join('\n');
+        } else {
+            taskBadge.style.display = 'none';
+        }
+    }
+
+    function pollAllNodes() {
+        document.querySelectorAll('[data-node-name]').forEach(badge => {
+            const name = badge.dataset.nodeName;
+            fetch(`/api/nodes/${name}/health`)
+                .then(r => r.json())
+                .then(data => updateHealthBadge(badge, data))
+                .catch(() => {});
+        });
+    }
+
+    pollAllNodes();
+    setInterval(pollAllNodes, 15000);
+</script>
+{% endblock %}

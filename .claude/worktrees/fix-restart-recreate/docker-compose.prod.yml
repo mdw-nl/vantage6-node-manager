@@ -1,0 +1,44 @@
+version: '3.8'
+
+# Docker Compose configuration using pre-built images from GitHub Container Registry
+# This is the recommended setup for production deployments
+
+services:
+  vantage6-node-manager:
+    image: ghcr.io/mdw-nl/vantage6-node-manager:latest
+    # For specific version, use:
+    # image: ghcr.io/mdw-nl/vantage6-node-manager:1.0.0
+    container_name: vantage6-node-manager
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount Docker socket to manage containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount vantage6 config directory
+      - ${HOME}/.config/vantage6:/root/.config/vantage6
+      # Mount system config directory (optional, for system-wide configurations)
+      - ${HOME}/.config/vantage6-system:/etc/vantage6/node
+      # Optional: mount data directory if using local datasets
+      - ${HOME}/vantage6-data:/data
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - VANTAGE6_CONFIG_DIR=/root/.config/vantage6/node
+      - VANTAGE6_SYSTEM_CONFIG_DIR=/etc/vantage6/node
+      - VANTAGE6_DATA_DIR=/data
+      - HOST_HOME=${HOME}
+    restart: unless-stopped
+    networks:
+      - vantage6-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  vantage6-network:
+    driver: bridge

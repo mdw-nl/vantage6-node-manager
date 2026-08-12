@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="page-title">
+        <i class="bi bi-grid-1x2"></i> Dashboard
+    </h1>
+    <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary">
+        <i class="bi bi-plus"></i> New Node
+    </a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="stats-card stats-total">
+            <h3>{{ total_configs }}</h3>
+            <p><i class="bi bi-hdd-stack"></i> Total Nodes</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card stats-running">
+            <h3>{{ running_count }}</h3>
+            <p><i class="bi bi-play-circle"></i> Running</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stats-card stats-stopped">
+            <h3>{{ total_configs - running_count }}</h3>
+            <p><i class="bi bi-stop-circle"></i> Stopped</p>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-hdd-stack"></i> Configured Nodes
+    </div>
+    <div class="card-body p-0">
+        {% if configs %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Type</th>
+                        <th>Server</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for config in configs %}
+                    <tr>
+                        <td><strong>{{ config.name }}</strong></td>
+                        <td>
+                            <span class="status-badge status-{{ config.status }}"
+                                  id="health-badge-{{ config.name }}"
+                                  data-node-name="{{ config.name }}">
+                                {% if config.status == 'running' %}
+                                    <i class="bi bi-play-fill"></i> Running
+                                {% elif config.status == 'stopped' %}
+                                    <i class="bi bi-stop-fill"></i> Stopped
+                                {% else %}
+                                    <i class="bi bi-question-circle"></i> Unknown
+                                {% endif %}
+                            </span>
+                            <span class="badge bg-warning ms-1" id="task-badge-{{ config.name }}" style="display: none;">
+                                <i class="bi bi-cpu-fill"></i> <span class="task-badge-count"></span>
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">
+                                {{ config.type }}
+                            </span>
+                        </td>
+                        <td><span class="text-secondary">{{ config.data.server_url }}</span></td>
+                        <td class="text-end">
+                            <div class="btn-group" role="group">
+                                <a href="{{ url_for('nodes.view_node', name=config.name) }}" class="btn btn-sm btn-info">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                {% if current_user.role in ['admin', 'operator'] %}
+                                {% if config.status != 'running' %}
+                                <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-success">
+                                        <i class="bi bi-play"></i>
+                                    </button>
+                                </form>
+                                {% else %}
+                                <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="bi bi-stop"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% endif %}
+                            </div>
+                            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
+                                  class="d-inline ms-1"
+                                  onsubmit="return confirm({% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %});">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
+            <p class="mt-2 mb-3 text-secondary">No nodes configured yet</p>
+            <a href="{{ url_for('nodes.new_node') }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-plus"></i> Create Node
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if running_nodes %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-play-circle"></i> Running Containers
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mb-0">
+                <thead>
+                    <tr>
+                        <th>Container</th>
+                        <th>ID</th>
+                        <th>Status</th>
+                        <th>Image</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for node in running_nodes %}
+                    <tr>
+                        <td><code>{{ node.name }}</code></td>
+                        <td><code>{{ node.id }}</code></td>
+                        <td><span class="status-badge status-running"><i class="bi bi-play-fill"></i> {{ node.status }}</span></td>
+                        <td><span class="text-secondary" style="font-size: 0.8rem;">{{ node.image }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const HEALTH_ICONS = {
+        online:       '<i class="bi bi-play-fill"></i> Running',
+        starting:     '<i class="bi bi-hourglass-split"></i> Starting',
+        reconnecting: '<i class="bi bi-arrow-repeat"></i> Reconnecting',
+        error:        '<i class="bi bi-exclamation-triangle-fill"></i> Error',
+        stopped:      '<i class="bi bi-stop-fill"></i> Stopped',
+        unknown:      '<i class="bi bi-question-circle"></i> Unknown',
+    };
+
+    const HEALTH_CLASSES = {
+        online:       'status-running',
+        starting:     'status-starting',
+        reconnecting: 'status-reconnecting',
+        error:        'status-error',
+        stopped:      'status-stopped',
+        unknown:      'status-unknown',
+    };
+
+    function updateHealthBadge(badge, health) {
+        badge.className = 'status-badge ' + (HEALTH_CLASSES[health.status] || 'status-unknown');
+        badge.innerHTML = HEALTH_ICONS[health.status] || HEALTH_ICONS.unknown;
+        badge.title = health.message || '';
+
+        const taskBadge = document.getElementById('task-badge-' + health.name);
+        if (!taskBadge) return;
+        const tasks = health.tasks || [];
+        if (tasks.length > 0) {
+            taskBadge.style.display = '';
+            taskBadge.querySelector('.task-badge-count').textContent =
+                tasks.length === 1 ? 'Running task' : `Running ${tasks.length} tasks`;
+            taskBadge.title = tasks.map(t => `run ${t.run_id}: ${t.image}`).join('\n');
+        } else {
+            taskBadge.style.display = 'none';
+        }
+    }
+
+    function pollAllNodes() {
+        document.querySelectorAll('[data-node-name]').forEach(badge => {
+            const name = badge.dataset.nodeName;
+            fetch(`/api/nodes/${name}/health`)
+                .then(r => r.json())
+                .then(data => updateHealthBadge(badge, data))
+                .catch(() => {});
+        });
+    }
+
+    pollAllNodes();
+    setInterval(pollAllNodes, 15000);
+</script>
+{% endblock %}

@@ -1,0 +1,28 @@
+services:
+  vantage6-server:
+    image: ghcr.io/mdw-nl/vantage6/infrastructure/server-lite:4.14.0-rc8
+    container_name: vantage6-demoserver-user
+    command: >
+      uwsgi --http :5000 --gevent 1000 --http-websockets
+      --http-chunked-input --http-keepalive --post-buffering 0
+      --master --callable app --disable-logging
+      --wsgi-file /vantage6/vantage6-server/vantage6/server/wsgi.py
+      --pyargv /mnt/config.yaml
+    ports:
+      - "5070:5000"
+    volumes:
+      - ./demoserver.yaml:/mnt/config.yaml:ro
+      - server-db:/mnt/db
+    labels:
+      vantage6-type: server
+      name: demoserver
+    networks:
+      - vantage6-server-network
+
+volumes:
+  server-db:
+
+networks:
+  vantage6-server-network:
+    name: vantage6-server-network
+    driver: bridge

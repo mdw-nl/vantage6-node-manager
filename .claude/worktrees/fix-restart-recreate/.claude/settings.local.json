@@ -129,9 +129,7 @@
       "Bash(curl -s -b /tmp/cookies4.txt -o /dev/null -w \"authenticated /: %{http_code}\\\\n\" http://localhost:15003/)",
       "Bash(.venv/bin/python -m pytest tests/ -q)",
       "Bash(.venv/bin/python *)",
-      "Bash(docker version *)",
-      "Bash(pip3 --version)",
-      "Bash(pip3 install *)"
+      "Bash(docker version *)"
     ]
   }
 }

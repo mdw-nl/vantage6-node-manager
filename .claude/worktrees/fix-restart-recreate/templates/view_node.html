@@ -1,0 +1,649 @@
+{% extends "base.html" %}
+
+{% block title %}{{ config.name }} - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+        <h1 class="page-title" style="margin: 0;">
+            <i class="bi bi-hdd-stack"></i> {{ config.name }}
+        </h1>
+        <span class="status-badge status-{{ config.status }}"
+              id="health-badge-{{ config.name }}"
+              data-node-name="{{ config.name }}"
+              title="">
+            {% if config.status == 'running' %}
+                <i class="bi bi-play-fill"></i> Running
+            {% elif config.status == 'stopped' %}
+                <i class="bi bi-stop-fill"></i> Stopped
+            {% else %}
+                <i class="bi bi-question-circle"></i> Unknown
+            {% endif %}
+        </span>
+    </div>
+    <a href="{{ url_for('nodes.list_nodes') }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body d-flex align-items-center gap-2 py-2">
+        {% if current_user.role in ['admin', 'operator'] %}
+        {% if config.status == 'running' %}
+        <form method="POST" action="{{ url_for('actions.stop_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-danger">
+                <i class="bi bi-stop-fill"></i> Stop
+            </button>
+        </form>
+        <form method="POST" action="{{ url_for('actions.restart_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-warning">
+                <i class="bi bi-arrow-clockwise"></i> Restart
+            </button>
+        </form>
+        <button class="btn btn-sm btn-info" onclick="refreshLogs()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Logs
+        </button>
+        {% else %}
+        <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-play-fill"></i> Start
+            </button>
+        </form>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#advancedStartModal">
+            <i class="bi bi-gear"></i> Advanced
+        </button>
+        {% endif %}
+        {% else %}
+        {% if config.status == 'running' %}
+        <button class="btn btn-sm btn-info" onclick="refreshLogs()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Logs
+        </button>
+        {% endif %}
+        {% endif %}
+
+        <div class="ms-auto">
+            <a href="{{ url_for('nodes.edit_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a href="{{ url_for('nodes.export_node', name=config.name) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download"></i> Export
+            </a>
+            <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
+                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'This node is still running. Deleting will stop and remove its container plus all its volumes (including node data). This cannot be undone. Continue?'{% else %}'Delete this node configuration? This also removes its Docker container and volumes (including node data). This cannot be undone. Consider exporting a backup first.'{% endif %}{% else %}'Remove this node from your list? It stays untouched for anyone else who already has access to it.'{% endif %});"
+                  class="d-inline">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i> {{ 'Delete' if current_user.role == 'admin' else 'Remove from my list' }}
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4" id="taskCard" style="display: {{ 'block' if running_tasks else 'none' }};">
+    <div class="card-header">
+        <i class="bi bi-cpu-fill"></i> <span id="taskCardHeader">{{ 'Running Task' if running_tasks|length == 1 else 'Running Tasks (' ~ running_tasks|length ~ ')' }}</span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table mb-0" style="font-size: 0.85rem;">
+            <thead>
+                <tr>
+                    <th>Run</th>
+                    <th>Algorithm</th>
+                    <th>Container</th>
+                    <th>Running for</th>
+                </tr>
+            </thead>
+            <tbody id="taskCardBody">
+                {% for task in running_tasks %}
+                <tr>
+                    <td><span class="badge bg-info">#{{ task.run_id }}</span></td>
+                    <td><code>{{ task.image }}</code></td>
+                    <td><code style="font-size: 0.75rem;">{{ task.container_name }}</code></td>
+                    <td class="task-duration" data-started="{{ task.started_at }}">&mdash;</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history"></i> Task History</span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="refreshTaskHistory()" style="padding: 0.15rem 0.5rem; font-size: 0.75rem;">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <table class="table mb-0" style="font-size: 0.85rem;">
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Run</th>
+                    <th>Algorithm</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="taskHistoryBody">
+                <tr>
+                    <td colspan="6" class="text-center text-secondary py-4">Loading task history...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center" id="taskHistoryPager" style="display: none; font-size: 0.8rem;">
+        <button class="btn btn-sm btn-outline-secondary" id="taskHistoryPrev" onclick="changeTaskHistoryPage(-1)" style="padding: 0.15rem 0.5rem;">
+            <i class="bi bi-chevron-left"></i> Prev
+        </button>
+        <span id="taskHistoryPageLabel" class="text-secondary"></span>
+        <button class="btn btn-sm btn-outline-secondary" id="taskHistoryNext" onclick="changeTaskHistoryPage(1)" style="padding: 0.15rem 0.5rem;">
+            Next <i class="bi bi-chevron-right"></i>
+        </button>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> Configuration
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0" style="font-size: 0.875rem;">
+                    <dt class="col-sm-4 text-secondary fw-normal">Name</dt>
+                    <dd class="col-sm-8"><strong>{{ config.name }}</strong></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Type</dt>
+                    <dd class="col-sm-8">
+                        <span class="badge bg-{{ 'primary' if config.type == 'system' else 'secondary' }}">{{ config.type }}</span>
+                    </dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Access</dt>
+                    <dd class="col-sm-8">{% if config.owners %}{{ config.owners|join(', ') }}{% else %}Admin only{% endif %}</dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Config</dt>
+                    <dd class="col-sm-8"><code>{{ config.path }}</code></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Server</dt>
+                    <dd class="col-sm-8">
+                        <a href="{{ config.data.server_url }}" target="_blank">
+                            {{ config.data.server_url }} <i class="bi bi-arrow-up-right" style="font-size: 0.7rem;"></i>
+                        </a>
+                    </dd>
+
+                    {% if config.data.port %}
+                    <dt class="col-sm-4 text-secondary fw-normal">Port</dt>
+                    <dd class="col-sm-8">{{ config.data.port }}</dd>
+                    {% endif %}
+
+                    <dt class="col-sm-4 text-secondary fw-normal">API Path</dt>
+                    <dd class="col-sm-8"><code>{{ config.data.api_path }}</code></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Version</dt>
+                    <dd class="col-sm-8">
+                        <span id="serverVersion" class="badge bg-secondary">
+                            <i class="bi bi-hourglass-split"></i> Checking...
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="checkServerVersion()" style="padding: 0.15rem 0.4rem; font-size: 0.7rem;">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </dd>
+
+                    {% if config.data.task_dir %}
+                    <dt class="col-sm-4 text-secondary fw-normal">Task Dir</dt>
+                    <dd class="col-sm-8"><code>{{ config.data.task_dir }}</code></dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-database"></i> Databases
+            </div>
+            <div class="card-body p-0">
+                {% if config.data.databases %}
+                <table class="table mb-0" style="font-size: 0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Type</th>
+                            <th>URI</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for db in config.data.databases %}
+                        <tr>
+                            <td><strong>{{ db.label }}</strong></td>
+                            <td><span class="badge bg-info">{{ db.type }}</span></td>
+                            <td><code>{{ db.uri }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="card-body">
+                    <p class="text-secondary mb-0" style="font-size: 0.85rem;">No databases configured.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-shield-lock"></i> Encryption
+            </div>
+            <div class="card-body" style="font-size: 0.875rem;">
+                {% if config.data.encryption and config.data.encryption.enabled %}
+                    <div class="d-flex align-items-start gap-2 mb-2">
+                        <span class="badge bg-success"><i class="bi bi-lock-fill"></i> Enabled</span>
+                        <small class="text-secondary">End-to-end encryption active</small>
+                    </div>
+                    {% if config.data.encryption.private_key %}
+                    <div class="mt-2">
+                        <small class="text-secondary fw-medium">Private key:</small>
+                        <code>{{ config.data.encryption.private_key }}</code>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="badge bg-secondary"><i class="bi bi-unlock"></i> Disabled</span>
+                        <small class="text-secondary">Communication is not encrypted</small>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        {% if container_info %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-box"></i> Container
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0" style="font-size: 0.875rem;">
+                    <dt class="col-sm-4 text-secondary fw-normal">ID</dt>
+                    <dd class="col-sm-8"><code>{{ container_info.id }}</code></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Image</dt>
+                    <dd class="col-sm-8"><code style="font-size: 0.75rem;">{{ container_info.image }}</code></dd>
+
+                    <dt class="col-sm-4 text-secondary fw-normal">Created</dt>
+                    <dd class="col-sm-8">{{ container_info.created }}</dd>
+
+                    {% if container_info.ports %}
+                    <dt class="col-sm-4 text-secondary fw-normal">Ports</dt>
+                    <dd class="col-sm-8">
+                        {% for port, bindings in container_info.ports.items() %}
+                            <code>{{ port }}</code>
+                            {% if bindings %} &rarr; <code>{{ bindings[0].HostPort }}</code>{% endif %}
+                            <br>
+                        {% endfor %}
+                    </dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if config.status == 'running' %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                <span><i class="bi bi-terminal"></i> Logs</span>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="text" id="logSearch" class="form-control form-control-sm"
+                           placeholder="Search all logs..." style="width: 180px; font-size: 0.75rem;"
+                           oninput="onLogSearchInput()">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshLogs()" style="padding: 0.15rem 0.5rem; font-size: 0.75rem;">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <pre id="logs" style="max-height: 420px; overflow-y: auto; margin: 0; border-radius: 0 0 var(--radius) var(--radius); font-size: 0.75rem; line-height: 1.6;">Loading logs...</pre>
+            </div>
+        </div>
+        {% else %}
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-terminal" style="font-size: 2rem; color: var(--text-tertiary);"></i>
+                <p class="mt-2 mb-0 text-secondary" style="font-size: 0.875rem;">Start the node to view logs</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="advancedStartModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" style="text-transform: none; letter-spacing: normal; font-size: 0.95rem;">
+                    <i class="bi bi-gear"></i> Advanced Start
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}">
+                <div class="modal-body">
+                    <div class="alert alert-info" style="font-size: 0.85rem;">
+                        <i class="bi bi-info-circle"></i> By default the node version is auto-detected from the server.
+                    </div>
+                    <div class="mb-3">
+                        <label for="customImage" class="form-label">Docker Image</label>
+                        <input type="text" class="form-control" id="customImage" name="image"
+                               placeholder="harbor2.vantage6.ai/infrastructure/node:4.7.1">
+                        <div class="form-text">Leave empty to auto-detect.</div>
+                    </div>
+                    <div style="font-size: 0.85rem;">
+                        <span class="text-secondary">Server:</span> {{ config.data.server_url }}<br>
+                        <span class="text-secondary">API path:</span> {{ config.data.api_path }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-success">
+                        <i class="bi bi-play-fill"></i> Start
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let logRefreshTimer = null;
+    let logSearchDebounce = null;
+
+    function renderLogs(text) {
+        document.getElementById('logs').textContent = text;
+    }
+
+    function refreshLogs() {
+        fetch("{{ url_for('nodes.view_logs', name=config.name) }}")
+            .then(response => response.json())
+            .then(data => {
+                if (data.logs) {
+                    renderLogs(data.logs);
+                } else if (data.error) {
+                    renderLogs('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                renderLogs('Error fetching logs: ' + error);
+            });
+    }
+
+    function searchLogs(query) {
+        fetch("{{ url_for('nodes.view_logs', name=config.name) }}?tail=all")
+            .then(response => response.json())
+            .then(data => {
+                if (data.logs) {
+                    const q = query.toLowerCase();
+                    const matches = data.logs.split('\n').filter(line => line.toLowerCase().includes(q));
+                    renderLogs(matches.length ? matches.join('\n') : `No matches for "${query}"`);
+                } else if (data.error) {
+                    renderLogs('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                renderLogs('Error searching logs: ' + error);
+            });
+    }
+
+    function onLogSearchInput() {
+        const query = document.getElementById('logSearch').value.trim();
+        clearTimeout(logSearchDebounce);
+
+        if (!query) {
+            if (!logRefreshTimer) {
+                logRefreshTimer = setInterval(refreshLogs, 5000);
+            }
+            refreshLogs();
+            return;
+        }
+
+        clearInterval(logRefreshTimer);
+        logRefreshTimer = null;
+        logSearchDebounce = setTimeout(() => searchLogs(query), 300);
+    }
+
+    function checkServerVersion() {
+        const serverUrl = "{{ config.data.server_url }}";
+        const apiPath = "{{ config.data.api_path }}";
+        const port = "{{ config.data.port or '' }}";
+        const badge = document.getElementById('serverVersion');
+
+        badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking...';
+        badge.className = 'badge bg-secondary';
+
+        fetch(`/api/server/version?server_url=${encodeURIComponent(serverUrl)}&api_path=${encodeURIComponent(apiPath)}&port=${encodeURIComponent(port)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    badge.innerHTML = `<i class="bi bi-check-circle"></i> v${data.version}`;
+                    badge.className = 'badge bg-success';
+                    badge.title = `Image: ${data.recommended_image}`;
+                } else {
+                    badge.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Unknown';
+                    badge.className = 'badge bg-warning';
+                    badge.title = data.error || '';
+                }
+            })
+            .catch(() => {
+                badge.innerHTML = '<i class="bi bi-x-circle"></i> Error';
+                badge.className = 'badge bg-danger';
+            });
+    }
+
+    {% if config.status == 'running' %}
+    logRefreshTimer = setInterval(refreshLogs, 5000);
+    refreshLogs();
+    {% endif %}
+
+    checkServerVersion();
+
+    const TASK_STATUS_CLASSES = {
+        completed: 'success',
+        error: 'danger',
+        running: 'warning',
+        pending: 'secondary',
+    };
+
+    const TASK_HISTORY_PAGE_SIZE = 10;
+    let taskHistoryPage = 1;
+
+    function changeTaskHistoryPage(delta) {
+        taskHistoryPage += delta;
+        refreshTaskHistory();
+    }
+
+    function updateTaskHistoryPager(data) {
+        const pager = document.getElementById('taskHistoryPager');
+        if (data.total_pages <= 1) {
+            pager.style.display = 'none';
+            return;
+        }
+        pager.style.display = '';
+        document.getElementById('taskHistoryPageLabel').textContent =
+            `Page ${data.page} of ${data.total_pages} (${data.total} tasks)`;
+        document.getElementById('taskHistoryPrev').disabled = data.page <= 1;
+        document.getElementById('taskHistoryNext').disabled = data.page >= data.total_pages;
+    }
+
+    function refreshTaskHistory() {
+        const body = document.getElementById('taskHistoryBody');
+        fetch(`{{ url_for('api.api_node_tasks', name=config.name) }}?limit=${TASK_HISTORY_PAGE_SIZE}&page=${taskHistoryPage}`)
+            .then(r => r.json())
+            .then(data => {
+                const history = data.history || [];
+                body.textContent = '';
+                updateTaskHistoryPager(data);
+
+                if (history.length === 0) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 6;
+                    td.className = 'text-center text-secondary py-4';
+                    td.textContent = data.error ? `Error: ${data.error}` : 'No tasks executed yet';
+                    tr.appendChild(td);
+                    body.appendChild(tr);
+                    return;
+                }
+
+                history.forEach(t => {
+                    const tr = document.createElement('tr');
+
+                    const taskCell = document.createElement('td');
+                    taskCell.append(`#${t.task_id} `);
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'text-secondary';
+                    nameSpan.textContent = t.name;
+                    taskCell.appendChild(nameSpan);
+
+                    const runCell = document.createElement('td');
+                    runCell.textContent = t.run_id ? `#${t.run_id}` : '—';
+
+                    const imageCell = document.createElement('td');
+                    const imageCode = document.createElement('code');
+                    imageCode.textContent = t.image;
+                    imageCell.appendChild(imageCode);
+
+                    const startedCell = document.createElement('td');
+                    startedCell.className = 'text-secondary';
+                    startedCell.textContent = t.started_at || '—';
+
+                    const durationCell = document.createElement('td');
+                    durationCell.textContent = t.duration_display;
+
+                    const statusCell = document.createElement('td');
+                    const statusBadge = document.createElement('span');
+                    statusBadge.className = 'badge bg-' + (TASK_STATUS_CLASSES[t.status] || 'secondary');
+                    statusBadge.textContent = t.status;
+                    statusCell.appendChild(statusBadge);
+
+                    tr.append(taskCell, runCell, imageCell, startedCell, durationCell, statusCell);
+                    body.appendChild(tr);
+                });
+            })
+            .catch(() => {
+                document.getElementById('taskHistoryPager').style.display = 'none';
+                body.textContent = '';
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 6;
+                td.className = 'text-center text-secondary py-4';
+                td.textContent = 'Error fetching task history';
+                tr.appendChild(td);
+                body.appendChild(tr);
+            });
+    }
+
+    refreshTaskHistory();
+
+    const HEALTH_ICONS = {
+        online:       '<i class="bi bi-play-fill"></i> Running',
+        starting:     '<i class="bi bi-hourglass-split"></i> Starting',
+        reconnecting: '<i class="bi bi-arrow-repeat"></i> Reconnecting',
+        error:        '<i class="bi bi-exclamation-triangle-fill"></i> Error',
+        stopped:      '<i class="bi bi-stop-fill"></i> Stopped',
+        unknown:      '<i class="bi bi-question-circle"></i> Unknown',
+    };
+
+    const HEALTH_CLASSES = {
+        online:       'status-running',
+        starting:     'status-starting',
+        reconnecting: 'status-reconnecting',
+        error:        'status-error',
+        stopped:      'status-stopped',
+        unknown:      'status-unknown',
+    };
+
+    function formatDuration(startedAt) {
+        if (!startedAt) return '—';
+        const start = new Date(startedAt).getTime();
+        if (isNaN(start)) return '—';
+        const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+
+    function updateTaskDurations() {
+        document.querySelectorAll('.task-duration').forEach(el => {
+            el.textContent = formatDuration(el.dataset.started);
+        });
+    }
+
+    function renderTasks(tasks) {
+        const card = document.getElementById('taskCard');
+        const header = document.getElementById('taskCardHeader');
+        const body = document.getElementById('taskCardBody');
+        if (!card || !body) return;
+
+        if (!tasks || tasks.length === 0) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = '';
+        header.textContent = tasks.length === 1 ? 'Running Task' : `Running Tasks (${tasks.length})`;
+
+        body.textContent = '';
+        tasks.forEach(t => {
+            const tr = document.createElement('tr');
+
+            const runCell = document.createElement('td');
+            const runBadge = document.createElement('span');
+            runBadge.className = 'badge bg-info';
+            runBadge.textContent = '#' + t.run_id;
+            runCell.appendChild(runBadge);
+
+            const imageCell = document.createElement('td');
+            const imageCode = document.createElement('code');
+            imageCode.textContent = t.image;
+            imageCell.appendChild(imageCode);
+
+            const containerCell = document.createElement('td');
+            const containerCode = document.createElement('code');
+            containerCode.style.fontSize = '0.75rem';
+            containerCode.textContent = t.container_name;
+            containerCell.appendChild(containerCode);
+
+            const durationCell = document.createElement('td');
+            durationCell.className = 'task-duration';
+            durationCell.dataset.started = t.started_at || '';
+            durationCell.textContent = '—';
+
+            tr.append(runCell, imageCell, containerCell, durationCell);
+            body.appendChild(tr);
+        });
+
+        updateTaskDurations();
+    }
+
+    function pollHealth() {
+        const badge = document.querySelector('[data-node-name]');
+        if (!badge) return;
+        fetch(`/api/nodes/${badge.dataset.nodeName}/health`)
+            .then(r => r.json())
+            .then(data => {
+                badge.className = 'status-badge ' + (HEALTH_CLASSES[data.status] || 'status-unknown');
+                badge.innerHTML = HEALTH_ICONS[data.status] || HEALTH_ICONS.unknown;
+                badge.title = data.message || '';
+                renderTasks(data.tasks || []);
+            })
+            .catch(() => {});
+    }
+
+    updateTaskDurations();
+    setInterval(updateTaskDurations, 1000);
+
+    pollHealth();
+    setInterval(pollHealth, 15000);
+</script>
+{% endblock %}

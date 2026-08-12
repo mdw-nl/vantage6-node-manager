@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ config.name }} - Vantage6 Node Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="page-title">
+        <i class="bi bi-pencil-square"></i> Edit {{ config.name }}
+    </h1>
+    <a href="{{ url_for('nodes.view_node', name=config.name) }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+{% if config.status == 'running' %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-4" style="font-size: 0.875rem;">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    This node is currently running. Saving changes here only updates the config file &mdash;
+    restart the node afterwards for them to take effect.
+</div>
+{% endif %}
+
+{% set other_owners = config.owners | reject('equalto', current_user.id) | list %}
+{% if other_owners %}
+<div class="alert alert-info d-flex align-items-center gap-2 mb-4" style="font-size: 0.875rem;">
+    <i class="bi bi-people-fill"></i>
+    This node is also shared with <strong>{{ other_owners|join(', ') }}</strong>. Connection, database,
+    and encryption changes saved here apply to the node itself &mdash; they'll see them too.
+</div>
+{% endif %}
+
+{% set db = config.data.databases[0] if config.data.databases else {} %}
+{% set policies = config.data.policies or {} %}
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <form method="POST" action="{{ url_for('nodes.edit_node', name=config.name) }}" enctype="multipart/form-data">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-info-circle"></i> Basic Information
+                </div>
+                <div class="card-body">
+                    <div class="mb-0">
+                        <label class="form-label">Node Name</label>
+                        <input type="text" class="form-control" value="{{ config.name }}" disabled readonly>
+                        <div class="form-text">Not editable here &mdash; renaming would orphan the running container and the config filename. Export and re-import under a new name instead.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-globe"></i> Server
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="server_url" class="form-label">Server URL <span class="text-danger">*</span></label>
+                        <input type="url" class="form-control" id="server_url" name="server_url" required
+                               value="{{ config.data.server_url or '' }}" placeholder="https://server.vantage6.ai">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="port" class="form-label">Port</label>
+                            <input type="number" class="form-control" id="port" name="port"
+                                   min="1" max="65535" value="{{ config.data.port or '' }}" placeholder="443">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="api_path" class="form-label">API Path</label>
+                            <input type="text" class="form-control" id="api_path" name="api_path"
+                                   value="{{ config.data.api_path or '/api' }}" placeholder="/api">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-key"></i> Authentication
+                </div>
+                <div class="card-body">
+                    <div class="mb-0">
+                        <label for="api_key" class="form-label">API Key <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="api_key" name="api_key" required
+                               value="{{ config.data.api_key or '' }}">
+                        <div class="form-text">
+                            <a href="#" id="toggleApiKey">Show/Hide</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-database"></i> Database
+                </div>
+                <div class="card-body">
+                    {% if config.data.databases and config.data.databases|length > 1 %}
+                    <div class="alert alert-secondary mb-3" style="font-size: 0.8rem;">
+                        This node has {{ config.data.databases|length }} configured databases. Only the first
+                        (<code>{{ db.label }}</code>) is editable here; the rest are kept as-is.
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label for="db_label" class="form-label">Label <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="db_label" name="db_label" required
+                               value="{{ db.label or 'default' }}" placeholder="default">
+                    </div>
+                    <div class="mb-3">
+                        <label for="db_uri" class="form-label">URI <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="db_uri" name="db_uri" required
+                               value="{{ db.uri or '' }}" placeholder="/path/to/data.csv">
+                    </div>
+                    <div class="mb-0">
+                        <label for="db_type" class="form-label">Type</label>
+                        <select class="form-select" id="db_type" name="db_type">
+                            {% for t in ['csv', 'parquet', 'sql', 'excel', 'sparql'] %}
+                            <option value="{{ t }}" {{ 'selected' if (db.type or 'csv') == t else '' }}>{{ t|upper if t in ['csv', 'sql'] else t|capitalize }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-shield-lock"></i> Encryption
+                </div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="encryption_enabled"
+                               name="encryption_enabled" onchange="toggleEncryptionOptions()"
+                               {{ 'checked' if config.data.encryption and config.data.encryption.enabled else '' }}>
+                        <label class="form-check-label" for="encryption_enabled">
+                            <strong>Enable end-to-end encryption</strong>
+                        </label>
+                    </div>
+
+                    <div id="encryption_options" style="display: {{ 'block' if config.data.encryption and config.data.encryption.enabled else 'none' }};">
+                        {% if config.data.encryption and config.data.encryption.enabled and config.data.encryption.private_key %}
+                        <div class="alert alert-secondary mb-3" style="font-size: 0.8rem;">
+                            Currently using <code>{{ config.data.encryption.private_key }}</code>.
+                            Leave the upload field empty to keep it, or provide a new key below to replace it.
+                        </div>
+                        {% endif %}
+                        <div class="mb-3">
+                            <label class="form-label">Key source</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="key_source" id="key_source_upload"
+                                       value="upload" checked onchange="toggleKeySource()">
+                                <label class="btn btn-outline-primary" for="key_source_upload">
+                                    <i class="bi bi-upload"></i> Upload Key
+                                </label>
+                                <input type="radio" class="btn-check" name="key_source" id="key_source_generate"
+                                       value="generate" onchange="toggleKeySource()">
+                                <label class="btn btn-outline-success" for="key_source_generate">
+                                    <i class="bi bi-key"></i> Generate Key
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="upload_key_section">
+                            <div class="mb-0">
+                                <label for="private_key_file" class="form-label">Private Key (.pem)</label>
+                                <input type="file" class="form-control" id="private_key_file"
+                                       name="private_key_file" accept=".pem,.key">
+                                <div class="form-text">All nodes in your organization must use the same key.</div>
+                            </div>
+                        </div>
+
+                        <div id="generate_key_section" style="display: none;">
+                            <button type="button" class="btn btn-success btn-sm" id="generate_key_btn"
+                                    onclick="generateEncryptionKey()">
+                                <i class="bi bi-key"></i> Generate RSA Key Pair
+                            </button>
+                            <div class="form-text mt-2">Generates a 4096-bit RSA key pair. Only needed if you want to replace the current key.</div>
+
+                            <div id="generated_key_display" style="display: none;" class="mt-3">
+                                <div class="alert alert-success" style="font-size: 0.85rem;">
+                                    <strong><i class="bi bi-check-circle"></i> Key pair generated.</strong>
+                                    Download your private key and store it securely.
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-primary" onclick="downloadPrivateKey()">
+                                            <i class="bi bi-download"></i> Download Private Key
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="viewPublicKey()">
+                                            <i class="bi bi-eye"></i> View Public Key
+                                        </button>
+                                    </div>
+                                </div>
+                                <input type="hidden" id="generated_private_key" name="generated_private_key">
+                                <input type="hidden" id="generated_public_key" name="generated_public_key">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-sliders"></i> Advanced
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="task_dir" class="form-label">Task Directory</label>
+                        <input type="text" class="form-control" id="task_dir" name="task_dir"
+                               value="{{ config.data.task_dir or '/tmp/vantage6' }}" placeholder="/tmp/vantage6">
+                        <div class="form-text">Directory for temporary task data.</div>
+                    </div>
+
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="allow_local_images"
+                               name="allow_local_images" {{ 'checked' if not policies.get('require_algorithm_pull', True) else '' }}>
+                        <label class="form-check-label" for="allow_local_images">
+                            <strong>Allow locally-built algorithm images</strong>
+                        </label>
+                        <div class="form-text">
+                            Off (default): the node only runs algorithm images it can pull from a
+                            registry &mdash; vantage6's own default. Turn this on for local
+                            development, where algorithm images are built with <code>docker build</code>
+                            and never pushed anywhere.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mb-4">
+                <a href="{{ url_for('nodes.view_node', name=config.name) }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check"></i> Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-question-circle"></i> Help
+            </div>
+            <div class="card-body" style="font-size: 0.825rem;">
+                <p class="mb-2">Changes are written straight into <code>{{ config.path }}</code> &mdash; fields not shown on this form (e.g. custom images, extra hosts, additional databases) are preserved as-is.</p>
+                <p class="mb-0">A running node only picks up config changes after it's restarted.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('toggleApiKey').addEventListener('click', function(e) {
+        e.preventDefault();
+        var el = document.getElementById('api_key');
+        el.type = el.type === 'password' ? 'text' : 'password';
+    });
+
+    function toggleEncryptionOptions() {
+        var on = document.getElementById('encryption_enabled').checked;
+        document.getElementById('encryption_options').style.display = on ? 'block' : 'none';
+    }
+
+    function toggleKeySource() {
+        var upload = document.getElementById('key_source_upload').checked;
+        document.getElementById('upload_key_section').style.display = upload ? 'block' : 'none';
+        document.getElementById('generate_key_section').style.display = upload ? 'none' : 'block';
+    }
+
+    let generatedKeys = null;
+
+    async function generateEncryptionKey() {
+        const btn = document.getElementById('generate_key_btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+
+        try {
+            const r = await fetch('/api/encryption/generate-key', { method: 'POST', headers: {'Content-Type': 'application/json'} });
+            const data = await r.json();
+            if (data.success) {
+                generatedKeys = { privateKey: data.private_key, publicKey: data.public_key };
+                document.getElementById('generated_private_key').value = data.private_key;
+                document.getElementById('generated_public_key').value = data.public_key;
+                document.getElementById('generated_key_display').style.display = 'block';
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> Generated';
+                btn.classList.replace('btn-success', 'btn-outline-success');
+            } else {
+                alert('Error: ' + data.error);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-key"></i> Generate RSA Key Pair';
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-key"></i> Generate RSA Key Pair';
+        }
+    }
+
+    function downloadPrivateKey() {
+        if (!generatedKeys) return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([generatedKeys.privateKey], {type: 'text/plain'}));
+        a.download = 'vantage6_private_key.pem';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
+    function viewPublicKey() {
+        if (!generatedKeys) return;
+        const el = document.createElement('div');
+        el.innerHTML = `
+            <div class="modal fade show" style="display:block;background:rgba(0,0,0,.5);" onclick="if(event.target===this)this.parentElement.remove()">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" style="text-transform:none;letter-spacing:normal;font-size:.95rem;"><i class="bi bi-key"></i> Public Key</h5>
+                            <button type="button" class="btn-close" onclick="this.closest('.modal').parentElement.remove()"></button>
+                        </div>
+                        <div class="modal-body">
+                            <pre style="font-size:.75rem;">${generatedKeys.publicKey}</pre>
+                            <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(generatedKeys.publicKey)">
+                                <i class="bi bi-clipboard"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(el);
+    }
+</script>
+{% endblock %}
