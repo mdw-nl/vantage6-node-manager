@@ -234,15 +234,61 @@ def test_stop_node_not_running_is_handled_gracefully(operator_client):
 
 
 def test_restart_running_node(operator_client):
+    """restart_node() must fully recreate the container (stop + remove + run
+    fresh from the current config) rather than a plain `docker restart` -
+    that's the only way a config edit's mount/env changes (database path,
+    encryption key, log dir) actually take effect. `container.status` is
+    flipped by the stop() side effect to simulate the daemon transitioning
+    the same container to 'exited', same as a real stop would."""
     create_node(operator_client, 'restart-me')
-    container = MagicMock()
+    container = MagicMock(status='running')
+    container.image.tags = ['harbor2.vantage6.ai/infrastructure/node:4.7.0']
+
+    def _mark_exited():
+        container.status = 'exited'
+    container.stop.side_effect = _mark_exited
+
     client = _fake_client(container_get_effect=lambda name: container)
 
     with _apply(_docker_patches(client)):
         resp = operator_client.post('/nodes/restart-me/restart', follow_redirects=True)
 
-    container.restart.assert_called_once()
+    container.stop.assert_called_once()
+    container.remove.assert_called_once()
+    client.containers.run.assert_called_once()
+    assert _run_image(client) == 'harbor2.vantage6.ai/infrastructure/node:4.7.0'
     assert b'restarted successfully' in resp.data.lower()
+
+
+def test_restart_picks_up_edited_database_path(operator_client):
+    """The bug this fix addresses: editing a running node's config (here, its
+    database path) and clicking Restart must actually mount the new path -
+    not silently keep the container's original mounts, which a plain `docker
+    restart` would have done.
+    """
+    create_node(operator_client, 'repath-node')
+    container = MagicMock(status='running')
+    container.image.tags = ['some/image:tag']
+
+    def _mark_exited():
+        container.status = 'exited'
+    container.stop.side_effect = _mark_exited
+
+    client = _fake_client(container_get_effect=lambda name: container)
+
+    with _apply(_docker_patches(client)):
+        operator_client.post('/nodes/repath-node/edit', data={
+            'server_url': 'https://example.com',
+            'db_label': 'default',
+            'db_uri': '/tmp/new-data.csv',
+            'db_type': 'csv',
+        })
+        operator_client.post('/nodes/repath-node/restart')
+
+    _, kwargs = client.containers.run.call_args
+    volumes = kwargs['volumes']
+    assert any(v.startswith('/tmp/new-data.csv:') for v in volumes)
+    assert not any(v.startswith('/tmp/test.csv:') for v in volumes)
 
 
 def test_restart_node_not_running_is_handled_gracefully(operator_client):
@@ -263,10 +309,12 @@ def test_start_stop_restart_are_logged_to_audit(operator_client):
     container.image.tags = []
     client = _fake_client(container_get_effect=lambda name: container)
 
+    # restart_node() now recreates the container the same way start_node()
+    # does, so it needs the same full patch set (container_path_to_host_path
+    # included) - not just get_docker_client - or it bails out with "Cannot
+    # mount config directory" before ever reaching containers.run().
     with _apply(_docker_patches(client)):
         operator_client.post('/nodes/audited-lifecycle-node/start', data={'image': 'some/image:tag'})
-
-    with patch('nodemanager.node_actions.get_docker_client', return_value=client):
         operator_client.post('/nodes/audited-lifecycle-node/stop')
         operator_client.post('/nodes/audited-lifecycle-node/restart')
 

@@ -28,6 +28,190 @@ actions_bp = Blueprint('actions', __name__)
 actions_bp.before_request(require_operator)
 
 
+def _create_node_container(name, config, client, requested_image=None):
+    """Create (or replace an existing stopped) container for a node, building its
+    volumes/env fresh from the current config - shared by start_node() and
+    restart_node() so that restarting a node picks up config changes (database
+    path, encryption key, log dir, etc.) exactly like starting one does, instead
+    of container.restart() reusing the original container's stale mounts/env.
+
+    Returns True if a container was created, False if one was already running
+    (in which case a 'already running' flash was raised and nothing was done).
+    """
+    postfix = "system" if config['type'] == 'system' else "user"
+    container_name = f"{APPNAME}-{name}-{postfix}"
+
+    # Check if already running
+    previous_image = None
+    try:
+        existing = client.containers.get(container_name)
+        if existing.status == 'running':
+            flash(f'Node "{name}" is already running', 'warning')
+            return False
+        else:
+            # Remember the image this node was last running, so a restart
+            # doesn't depend on re-detecting/re-pulling an image (which may
+            # live in a registry that isn't reachable from this host)
+            if existing.image and existing.image.tags:
+                previous_image = existing.image.tags[0]
+            # Remove the existing stopped container and recreate it
+            existing.remove()
+            flash(f'Removed existing stopped container, creating new one...', 'info')
+    except docker.errors.NotFound:
+        # Container doesn't exist, will create below
+        pass
+
+    # Determine image version from server if not specified
+    image = requested_image or previous_image
+    if image and image == previous_image:
+        flash(f'Reusing previously used node image: {image}', 'info')
+
+    if not image:
+        # Get server version to determine appropriate node image
+        server_url = config['data'].get('server_url')
+        api_path = config['data'].get('api_path', '/api')
+        port = config['data'].get('port')
+
+        version, error = (None, 'No server URL configured')
+        if server_url:
+            version, error = get_server_version(server_url, api_path, port)
+
+        if version:
+            image = find_local_node_image(client, version)
+            if image:
+                flash(f'Using locally available node image matching server version {version}: {image}', 'info')
+            else:
+                image = get_node_image_for_version(version)
+                flash(f'Using node image for server version {version}', 'info')
+        else:
+            image = find_local_node_image(client)
+            if image:
+                flash(f'Could not detect server version ({error}). Using locally available node image: {image}', 'warning')
+            else:
+                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
+
+    # Create Docker volumes (similar to official implementation)
+    # These volumes persist data, VPN config, SSH config, and Squid proxy config
+    data_volume_name = f"{container_name}-vol"
+    vpn_volume_name = f"{container_name}-vpn-vol"
+    ssh_volume_name = f"{container_name}-ssh-vol"
+    squid_volume_name = f"{container_name}-squid-vol"
+
+    # Create volumes if they don't exist
+    try:
+        data_volume = client.volumes.get(data_volume_name)
+    except docker.errors.NotFound:
+        data_volume = client.volumes.create(data_volume_name)
+        flash(f'Created data volume: {data_volume_name}', 'info')
+
+    try:
+        vpn_volume = client.volumes.get(vpn_volume_name)
+    except docker.errors.NotFound:
+        vpn_volume = client.volumes.create(vpn_volume_name)
+        flash(f'Created VPN volume: {vpn_volume_name}', 'info')
+
+    try:
+        ssh_volume = client.volumes.get(ssh_volume_name)
+    except docker.errors.NotFound:
+        ssh_volume = client.volumes.create(ssh_volume_name)
+        flash(f'Created SSH volume: {ssh_volume_name}', 'info')
+
+    try:
+        squid_volume = client.volumes.get(squid_volume_name)
+    except docker.errors.NotFound:
+        squid_volume = client.volumes.create(squid_volume_name)
+        flash(f'Created Squid volume: {squid_volume_name}', 'info')
+
+    # Convert container path to host path for config directory
+    config_path = Path(config['path'])
+    config_dir_host_path = container_path_to_host_path(str(config_path.parent))
+
+    if not config_dir_host_path:
+        flash(f'Error: Cannot mount config directory - path not in mounted volume', 'error')
+        return False
+
+    # Get log directory from config
+    log_dir_path = config['data'].get('logging', {}).get('file')
+    if log_dir_path:
+        log_dir = Path(log_dir_path).parent
+        log_dir_host_path = container_path_to_host_path(str(log_dir))
+    else:
+        # Default log directory
+        log_dir = VANTAGE6_DATA_DIR / name / 'log'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir_host_path = container_path_to_host_path(str(log_dir))
+
+    # Build volume mounts similar to official vantage6 implementation
+    # Format: host_path:container_path or volume_name:container_path
+    volumes = [
+        f"{log_dir_host_path}:/mnt/log",
+        f"{data_volume.name}:/mnt/data",
+        f"{vpn_volume.name}:/mnt/vpn",
+        f"{ssh_volume.name}:/mnt/ssh",
+        f"{squid_volume.name}:/mnt/squid",
+        f"{config_dir_host_path}:/mnt/config",
+        "/var/run/docker.sock:/var/run/docker.sock"
+    ]
+
+    # Mount private key file if encryption is enabled
+    encryption_config = config['data'].get('encryption', {})
+    if encryption_config.get('enabled') and encryption_config.get('private_key'):
+        # The private key path in config is relative to VANTAGE6_CONFIG_DIR.parent
+        # e.g. "node/private_keys/mynode_private_key.pem"
+        private_key_relative = encryption_config['private_key']
+        private_key_config_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
+        private_key_host_path = container_path_to_host_path(private_key_config_path)
+        if private_key_host_path:
+            volumes.append(f"{private_key_host_path}:/mnt/private_key.pem")
+        else:
+            flash(f'Warning: Could not resolve host path for private key '
+                  f'"{private_key_config_path}". Verify your encryption configuration.', 'warning')
+
+    # Build environment variables similar to official implementation
+    env = {
+        'DATA_VOLUME_NAME': data_volume.name,
+        'VPN_VOLUME_NAME': vpn_volume.name,
+        'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
+        'SSH_SQUID_VOLUME_NAME': squid_volume.name,
+    }
+
+    # Only set PRIVATE_KEY env var when encryption is enabled
+    if encryption_config.get('enabled'):
+        env['PRIVATE_KEY'] = '/mnt/private_key.pem'
+
+    # Add database URIs as environment variables (required for dockerized nodes).
+    # File-based databases also need to be bind-mounted into the node container -
+    # see build_database_env_and_volumes() for why.
+    db_env, db_volumes = build_database_env_and_volumes(config['data'].get('databases'))
+    env.update(db_env)
+    volumes.extend(db_volumes)
+
+    # Build the command to run inside the container
+    # This is the critical missing piece - the container needs a command!
+    system_folders_option = "--system" if config['type'] == 'system' else "--user"
+    cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
+
+    # Create and start the container
+    client.containers.run(
+        image,
+        command=cmd,
+        volumes=volumes,
+        detach=True,
+        labels={
+            f'{APPNAME}-type': 'node',
+            'system': str(config['type'] == 'system'),
+            'name': name
+        },
+        environment=env,
+        name=container_name,
+        auto_remove=False,
+        tty=True,
+        extra_hosts={"host.docker.internal": "host-gateway"}
+    )
+    return True
+
+
 @actions_bp.route('/nodes/<name>/start', methods=['POST'])
 def start_node(name):
     """Start a node container following official vantage6 implementation"""
@@ -43,180 +227,9 @@ def start_node(name):
         return redirect(url_for('nodes.view_node', name=name))
 
     try:
-        postfix = "system" if config['type'] == 'system' else "user"
-        container_name = f"{APPNAME}-{name}-{postfix}"
-
-        # Check if already running
-        previous_image = None
-        try:
-            existing = client.containers.get(container_name)
-            if existing.status == 'running':
-                flash(f'Node "{name}" is already running', 'warning')
-                return redirect(url_for('nodes.view_node', name=name))
-            else:
-                # Remember the image this node was last running, so a restart
-                # doesn't depend on re-detecting/re-pulling an image (which may
-                # live in a registry that isn't reachable from this host)
-                if existing.image and existing.image.tags:
-                    previous_image = existing.image.tags[0]
-                # Remove the existing stopped container and recreate it
-                existing.remove()
-                flash(f'Removed existing stopped container, creating new one...', 'info')
-        except docker.errors.NotFound:
-            # Container doesn't exist, will create below
-            pass
-
-        # Determine image version from server if not specified
-        image = request.form.get('image') or previous_image
-        if image and image == previous_image:
-            flash(f'Reusing previously used node image: {image}', 'info')
-
-        if not image:
-            # Get server version to determine appropriate node image
-            server_url = config['data'].get('server_url')
-            api_path = config['data'].get('api_path', '/api')
-            port = config['data'].get('port')
-
-            version, error = (None, 'No server URL configured')
-            if server_url:
-                version, error = get_server_version(server_url, api_path, port)
-
-            if version:
-                image = find_local_node_image(client, version)
-                if image:
-                    flash(f'Using locally available node image matching server version {version}: {image}', 'info')
-                else:
-                    image = get_node_image_for_version(version)
-                    flash(f'Using node image for server version {version}', 'info')
-            else:
-                image = find_local_node_image(client)
-                if image:
-                    flash(f'Could not detect server version ({error}). Using locally available node image: {image}', 'warning')
-                else:
-                    image = 'harbor2.vantage6.ai/infrastructure/node:latest'
-                    flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
-
-        # Create Docker volumes (similar to official implementation)
-        # These volumes persist data, VPN config, SSH config, and Squid proxy config
-        data_volume_name = f"{container_name}-vol"
-        vpn_volume_name = f"{container_name}-vpn-vol"
-        ssh_volume_name = f"{container_name}-ssh-vol"
-        squid_volume_name = f"{container_name}-squid-vol"
-
-        # Create volumes if they don't exist
-        try:
-            data_volume = client.volumes.get(data_volume_name)
-        except docker.errors.NotFound:
-            data_volume = client.volumes.create(data_volume_name)
-            flash(f'Created data volume: {data_volume_name}', 'info')
-
-        try:
-            vpn_volume = client.volumes.get(vpn_volume_name)
-        except docker.errors.NotFound:
-            vpn_volume = client.volumes.create(vpn_volume_name)
-            flash(f'Created VPN volume: {vpn_volume_name}', 'info')
-
-        try:
-            ssh_volume = client.volumes.get(ssh_volume_name)
-        except docker.errors.NotFound:
-            ssh_volume = client.volumes.create(ssh_volume_name)
-            flash(f'Created SSH volume: {ssh_volume_name}', 'info')
-
-        try:
-            squid_volume = client.volumes.get(squid_volume_name)
-        except docker.errors.NotFound:
-            squid_volume = client.volumes.create(squid_volume_name)
-            flash(f'Created Squid volume: {squid_volume_name}', 'info')
-
-        # Convert container path to host path for config directory
-        config_path = Path(config['path'])
-        config_dir_host_path = container_path_to_host_path(str(config_path.parent))
-
-        if not config_dir_host_path:
-            flash(f'Error: Cannot mount config directory - path not in mounted volume', 'error')
-            return redirect(url_for('nodes.view_node', name=name))
-
-        # Get log directory from config
-        log_dir_path = config['data'].get('logging', {}).get('file')
-        if log_dir_path:
-            log_dir = Path(log_dir_path).parent
-            log_dir_host_path = container_path_to_host_path(str(log_dir))
-        else:
-            # Default log directory
-            log_dir = VANTAGE6_DATA_DIR / name / 'log'
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_dir_host_path = container_path_to_host_path(str(log_dir))
-
-        # Build volume mounts similar to official vantage6 implementation
-        # Format: host_path:container_path or volume_name:container_path
-        volumes = [
-            f"{log_dir_host_path}:/mnt/log",
-            f"{data_volume.name}:/mnt/data",
-            f"{vpn_volume.name}:/mnt/vpn",
-            f"{ssh_volume.name}:/mnt/ssh",
-            f"{squid_volume.name}:/mnt/squid",
-            f"{config_dir_host_path}:/mnt/config",
-            "/var/run/docker.sock:/var/run/docker.sock"
-        ]
-
-        # Mount private key file if encryption is enabled
-        encryption_config = config['data'].get('encryption', {})
-        if encryption_config.get('enabled') and encryption_config.get('private_key'):
-            # The private key path in config is relative to VANTAGE6_CONFIG_DIR.parent
-            # e.g. "node/private_keys/mynode_private_key.pem"
-            private_key_relative = encryption_config['private_key']
-            private_key_config_path = str(VANTAGE6_CONFIG_DIR.parent / private_key_relative)
-            private_key_host_path = container_path_to_host_path(private_key_config_path)
-            if private_key_host_path:
-                volumes.append(f"{private_key_host_path}:/mnt/private_key.pem")
-            else:
-                flash(f'Warning: Could not resolve host path for private key '
-                      f'"{private_key_config_path}". Verify your encryption configuration.', 'warning')
-
-        # Build environment variables similar to official implementation
-        env = {
-            'DATA_VOLUME_NAME': data_volume.name,
-            'VPN_VOLUME_NAME': vpn_volume.name,
-            'SSH_TUNNEL_VOLUME_NAME': ssh_volume.name,
-            'SSH_SQUID_VOLUME_NAME': squid_volume.name,
-        }
-
-        # Only set PRIVATE_KEY env var when encryption is enabled
-        if encryption_config.get('enabled'):
-            env['PRIVATE_KEY'] = '/mnt/private_key.pem'
-
-        # Add database URIs as environment variables (required for dockerized nodes).
-        # File-based databases also need to be bind-mounted into the node container -
-        # see build_database_env_and_volumes() for why.
-        db_env, db_volumes = build_database_env_and_volumes(config['data'].get('databases'))
-        env.update(db_env)
-        volumes.extend(db_volumes)
-
-        # Build the command to run inside the container
-        # This is the critical missing piece - the container needs a command!
-        system_folders_option = "--system" if config['type'] == 'system' else "--user"
-        cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
-
-        # Create and start the container
-        container = client.containers.run(
-            image,
-            command=cmd,
-            volumes=volumes,
-            detach=True,
-            labels={
-                f'{APPNAME}-type': 'node',
-                'system': str(config['type'] == 'system'),
-                'name': name
-            },
-            environment=env,
-            name=container_name,
-            auto_remove=False,
-            tty=True,
-            extra_hosts={"host.docker.internal": "host-gateway"}
-        )
-
-        log_event(current_user.id, current_user.role, 'node.start', node_name=name)
-        flash(f'Node "{name}" started successfully', 'success')
+        if _create_node_container(name, config, client, requested_image=request.form.get('image')):
+            log_event(current_user.id, current_user.role, 'node.start', node_name=name)
+            flash(f'Node "{name}" started successfully', 'success')
 
     except Exception as e:
         import sys
@@ -261,7 +274,15 @@ def stop_node(name):
 
 @actions_bp.route('/nodes/<name>/restart', methods=['POST'])
 def restart_node(name):
-    """Restart a node"""
+    """Restart a node.
+
+    Unlike a plain `docker restart` (which reuses the existing container's
+    original volumes/env), this stops the container and recreates it via
+    _create_node_container() - the same path start_node() uses for a stopped
+    container. A config edit (database path, encryption key, log dir, ...)
+    changes what mounts/env the container needs, not just what the process
+    inside it reads, so only a full recreate is guaranteed to pick it up.
+    """
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
 
@@ -277,13 +298,19 @@ def restart_node(name):
         postfix = "system" if config['type'] == 'system' else "user"
         container_name = f"{APPNAME}-{name}-{postfix}"
 
-        container = client.containers.get(container_name)
-        container.restart()
-        log_event(current_user.id, current_user.role, 'node.restart', node_name=name)
-        flash(f'Node "{name}" restarted successfully', 'success')
+        try:
+            container = client.containers.get(container_name)
+        except docker.errors.NotFound:
+            flash(f'Node "{name}" is not running', 'warning')
+            return redirect(url_for('nodes.view_node', name=name))
 
-    except docker.errors.NotFound:
-        flash(f'Node "{name}" is not running', 'warning')
+        if container.status == 'running':
+            container.stop()
+
+        if _create_node_container(name, config, client):
+            log_event(current_user.id, current_user.role, 'node.restart', node_name=name)
+            flash(f'Node "{name}" restarted successfully', 'success')
+
     except Exception as e:
         flash(f'Error restarting node: {str(e)}', 'error')
 
