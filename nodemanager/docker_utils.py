@@ -168,13 +168,13 @@ def get_node_image_for_version(version):
         if len(parts) >= 2:
             major_minor = f"{parts[0]}.{parts[1]}"
             # Use the exact version for patch-level compatibility
-            return f"harbor2.vantage6.ai/infrastructure/node:{version}"
+            return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
         else:
             # Fallback if version format is unexpected
-            return f"harbor2.vantage6.ai/infrastructure/node:{version}"
+            return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
     except Exception:
         # If parsing fails, use the provided version as-is
-        return f"harbor2.vantage6.ai/infrastructure/node:{version}"
+        return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
 
 
 def get_running_nodes():

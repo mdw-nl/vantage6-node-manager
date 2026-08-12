@@ -88,7 +88,9 @@ def _create_node_container(name, config, client, requested_image=None):
             if image:
                 flash(f'Could not detect server version ({error}). Using locally available node image: {image}', 'warning')
             else:
-                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                # node-lite doesn't publish a ":latest" tag, so fall back to the
+                # newest known-good release instead of a tag that's guaranteed to 404.
+                image = 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc9'
                 flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
 
     # Create Docker volumes (similar to official implementation)
@@ -366,7 +368,9 @@ def bulk_start_nodes():
                 if not image and version:
                     image = get_node_image_for_version(version)
             if not image:
-                image = 'harbor2.vantage6.ai/infrastructure/node:latest'
+                # node-lite doesn't publish a ":latest" tag, so fall back to the
+                # newest known-good release instead of a tag that's guaranteed to 404.
+                image = 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc9'
 
             data_volume_name = f"{container_name}-vol"
             vpn_volume_name = f"{container_name}-vpn-vol"

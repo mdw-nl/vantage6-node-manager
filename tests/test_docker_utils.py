@@ -118,11 +118,11 @@ def test_no_databases_returns_empty():
 # --- get_node_image_for_version ---
 
 def test_get_node_image_for_version_builds_harbor_tag():
-    assert get_node_image_for_version('4.7.1') == 'harbor2.vantage6.ai/infrastructure/node:4.7.1'
+    assert get_node_image_for_version('4.7.1') == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.7.1'
 
 
 def test_get_node_image_for_version_handles_short_version_string():
-    assert get_node_image_for_version('4') == 'harbor2.vantage6.ai/infrastructure/node:4'
+    assert get_node_image_for_version('4') == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4'
 
 
 # --- find_local_node_image ---

@@ -185,7 +185,7 @@ def test_start_with_no_image_and_no_history_falls_back_through_version_chain(ope
     })):
         operator_client.post('/nodes/no-image-node/start')
 
-    assert _run_image(client) == 'harbor2.vantage6.ai/infrastructure/node:4.9.0'
+    assert _run_image(client) == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.9.0'
 
 
 def test_start_falls_back_to_latest_when_server_unreachable(operator_client):
@@ -198,7 +198,7 @@ def test_start_falls_back_to_latest_when_server_unreachable(operator_client):
     })):
         resp = operator_client.post('/nodes/unreachable-node/start', follow_redirects=True)
 
-    assert _run_image(client) == 'harbor2.vantage6.ai/infrastructure/node:latest'
+    assert _run_image(client) == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc9'
     assert b'could not detect server version' in resp.data.lower()
 
 
