@@ -1,6 +1,9 @@
 """Node configuration CRUD and display: dashboard, list, create/edit/view/delete,
-import/export, and log viewing. Everything here reads/writes config YAML files or
-displays state - Docker container start/stop/restart lives in node_actions.py.
+import/export, and log viewing. Docker container start/stop/restart lives in
+node_actions.py - the one exception is delete_node()/bulk_delete_nodes(), whose
+admin "real delete" also stops/removes the node's container and volumes (see
+delete_node()'s docstring for why deleting the config without that would just
+orphan the container in the backend).
 """
 import os
 import re
@@ -14,7 +17,9 @@ from flask_login import current_user
 from werkzeug.utils import secure_filename
 
 from nodemanager.config import VANTAGE6_CONFIG_DIR, APPNAME
-from nodemanager.docker_utils import get_docker_client, get_node_status, get_running_nodes
+from nodemanager.docker_utils import (
+    get_docker_client, get_node_status, get_running_nodes, remove_node_container_and_volumes
+)
 from nodemanager.node_config import (
     get_node_configs, add_node_owner, set_node_owners, remove_node_owner,
     clear_node_owner, filter_visible_configs, can_access_config
@@ -435,17 +440,20 @@ def _delete_node_files(config):
 def delete_node(name):
     """"Delete" a node configuration - what this actually does depends on role.
 
-    admin: a real, permanent delete - removes the config file itself and
-    clears every owner. admin is the only role whose "delete" can affect
-    other people's access, since it's the one role responsible for the
+    admin: a real, permanent delete - stops and removes the node's Docker
+    container and its data/vpn/ssh/squid volumes, then removes the config
+    file itself and clears every owner. admin is the only role whose
+    "delete" can affect other people's access (and the underlying
+    container/volumes), since it's the one role responsible for the
     underlying node's lifecycle.
 
     Everyone else: removes only the current user from the owner list, same
-    as admin unchecking them in the Access picker. The config file and
-    every other owner's access are untouched - this holds even for a node
-    the current user originally created, since once a node is shared,
-    nobody's personal "delete" should be able to yank it out from under
-    someone else who was granted access to the same physical node.
+    as admin unchecking them in the Access picker. The config file, the
+    container, its volumes, and every other owner's access are untouched -
+    this holds even for a node the current user originally created, since
+    once a node is shared, nobody's personal "delete" should be able to yank
+    it out from under someone else who was granted access to the same
+    physical node.
     """
     configs = get_node_configs()
     config = next((c for c in configs if c['name'] == name), None)
@@ -455,16 +463,38 @@ def delete_node(name):
         return redirect(url_for('nodes.list_nodes'))
 
     if current_user.role == 'admin':
+        client = get_docker_client()
+        if not client:
+            flash('Node configuration was not deleted - it could not be removed '
+                  'without also cleaning up its container.', 'warning')
+            return redirect(url_for('nodes.list_nodes'))
+
+        postfix = "system" if config['type'] == 'system' else "user"
+        container_name = f"{APPNAME}-{name}-{postfix}"
         try:
-            # This only removes the config from the node manager - if the
-            # node's container is still running, it is left untouched and
-            # keeps running unmanaged.
+            container_removed, volumes_removed, volume_warnings = \
+                remove_node_container_and_volumes(client, container_name)
+        except Exception as e:
+            flash(f'Could not remove container "{container_name}": {str(e)} - '
+                  f'node configuration was not deleted', 'error')
+            return redirect(url_for('nodes.list_nodes'))
+
+        try:
             _delete_node_files(config)
             clear_node_owner(name)
             log_event(current_user.id, current_user.role, 'node.delete', node_name=name)
-            flash(f'Node configuration "{name}" deleted successfully', 'success')
+            detail = 'its container' if container_removed else 'its container (already gone)'
+            flash(f'Node configuration "{name}" deleted successfully, along with '
+                  f'{detail} and {len(volumes_removed)} volume(s)', 'success')
+            for warning in volume_warnings:
+                flash(f'Could not remove volume {warning}', 'warning')
         except Exception as e:
-            flash(f'Error deleting configuration: {str(e)}', 'error')
+            # The container and volumes above are already gone at this point -
+            # a failure here leaves the config behind, but the node's data is
+            # not recoverable by starting it again, so say so explicitly
+            # rather than letting this read like nothing happened.
+            flash(f'Error deleting configuration: {str(e)}. Its container and volumes '
+                  f'(including node data) were already removed and cannot be recovered.', 'error')
     else:
         remove_node_owner(name, current_user.id)
         log_event(current_user.id, current_user.role, 'node.leave', node_name=name)
@@ -630,6 +660,8 @@ def bulk_delete_nodes():
         return redirect(url_for('nodes.list_nodes'))
 
     configs = get_node_configs()
+    client = get_docker_client() if current_user.role == 'admin' else None
+
     deleted = []
     removed = []
     errors = []
@@ -643,13 +675,29 @@ def bulk_delete_nodes():
         if current_user.role == 'admin':
             # Real delete - see delete_node()'s docstring for why this
             # differs by role.
+            if not client:
+                errors.append(f'{name}: could not remove without also cleaning up its container')
+                continue
+            postfix = "system" if config['type'] == 'system' else "user"
+            container_name = f"{APPNAME}-{name}-{postfix}"
+            try:
+                container_removed, volumes_removed, volume_warnings = \
+                    remove_node_container_and_volumes(client, container_name)
+            except Exception as e:
+                errors.append(f'{name}: could not remove container - {str(e)}')
+                continue
             try:
                 _delete_node_files(config)
                 clear_node_owner(name)
                 log_event(current_user.id, current_user.role, 'node.delete', node_name=name, details='bulk')
                 deleted.append(name)
+                for warning in volume_warnings:
+                    errors.append(f'{name}: could not remove volume {warning}')
             except Exception as e:
-                errors.append(f'{name}: {str(e)}')
+                # Container/volumes above are already gone - the node's data
+                # is not recoverable even though the config survives.
+                errors.append(f'{name}: {str(e)} (its container and volumes, including '
+                               f'node data, were already removed and cannot be recovered)')
         else:
             remove_node_owner(name, current_user.id)
             log_event(current_user.id, current_user.role, 'node.leave', node_name=name, details='bulk')

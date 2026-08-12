@@ -69,7 +69,7 @@
                 <i class="bi bi-download"></i> Export
             </a>
             <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
-                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'This node is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete this node configuration? This cannot be undone. Consider exporting a backup first.'{% endif %}{% else %}'Remove this node from your list? It stays untouched for anyone else who already has access to it.'{% endif %});"
+                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'This node is still running. Deleting will stop and remove its container plus all its volumes (including node data). This cannot be undone. Continue?'{% else %}'Delete this node configuration? This also removes its Docker container and volumes (including node data). This cannot be undone. Consider exporting a backup first.'{% endif %}{% else %}'Remove this node from your list? It stays untouched for anyone else who already has access to it.'{% endif %});"
                   class="d-inline">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
                     <i class="bi bi-trash"></i> {{ 'Delete' if current_user.role == 'admin' else 'Remove from my list' }}

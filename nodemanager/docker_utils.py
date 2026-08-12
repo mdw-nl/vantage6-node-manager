@@ -201,6 +201,52 @@ def get_running_nodes():
     return running_nodes
 
 
+def remove_node_container_and_volumes(client, container_name):
+    """Stop and remove a node's container, then remove its data/vpn/ssh/squid
+    volumes (the same names start_node()/bulk_start_nodes() create). Used by
+    the "real" admin delete so it doesn't just forget about the config while
+    leaving the container running and volumes (including node data)
+    orphaned in the backend.
+
+    Container removal failures other than NotFound are raised to the caller -
+    a real error there (stop timeout, daemon hiccup) should abort the delete
+    rather than silently proceeding to also drop the config, since once the
+    config is gone the UI has no handle left on that container at all.
+
+    Volume removal failures (e.g. a volume still in use) are collected and
+    returned instead of raised - the container and config are already gone
+    at that point, so the caller should warn about the leftover volume
+    rather than block the delete on it.
+
+    Returns:
+        (container_removed, volumes_removed, volume_warnings)
+    """
+    container_removed = False
+    try:
+        container = client.containers.get(container_name)
+        container.stop()
+        container.remove()
+        container_removed = True
+    except docker.errors.NotFound:
+        pass
+
+    volumes_removed = []
+    volume_warnings = []
+    for suffix in ('-vol', '-vpn-vol', '-ssh-vol', '-squid-vol'):
+        volume_name = f'{container_name}{suffix}'
+        try:
+            volume = client.volumes.get(volume_name)
+        except docker.errors.NotFound:
+            continue
+        try:
+            volume.remove()
+            volumes_removed.append(volume_name)
+        except Exception as e:
+            volume_warnings.append(f'{volume_name}: {str(e)}')
+
+    return container_removed, volumes_removed, volume_warnings
+
+
 def get_node_status(node_name, system_folders=False):
     """Check if a specific node is running"""
     postfix = "system" if system_folders else "user"

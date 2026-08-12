@@ -2,6 +2,10 @@
 just the ownership boundary, same "boundary not full coverage" scope as
 test_permissions.py.
 """
+from unittest.mock import MagicMock, patch
+
+import docker.errors
+
 from nodemanager.node_config import _load_node_owners, get_node_configs
 from tests.conftest import (
     ADMIN_USERNAME, ADMIN_PASSWORD, OPERATOR_USERNAME, OPERATOR2_USERNAME,
@@ -400,3 +404,156 @@ def test_edit_node_no_shared_warning_when_sole_owner(operator_client):
 
     resp = operator_client.get('/nodes/solo-edit-node/edit')
     assert b'also shared with' not in resp.data.lower()
+
+
+# --- Admin's real delete must also remove the node's Docker container and volumes ---
+
+def _fake_docker_client(container_name=None, volume_names=None):
+    """MagicMock docker client for delete-route tests: containers.get(name)
+    returns a container mock only when `name` matches `container_name`
+    (NotFound otherwise, simulating no running/stopped container left
+    behind). volumes.get(name) returns a distinct mock per name in
+    `volume_names` (NotFound for anything else).
+
+    Returns (client, container_mock, {volume_name: volume_mock}).
+    """
+    client = MagicMock()
+    container_mock = MagicMock()
+
+    def _get_container(name):
+        if container_name is not None and name == container_name:
+            return container_mock
+        raise docker.errors.NotFound('no such container')
+    client.containers.get.side_effect = _get_container
+
+    volume_mocks = {vname: MagicMock() for vname in (volume_names or [])}
+
+    def _get_volume(name):
+        if name in volume_mocks:
+            return volume_mocks[name]
+        raise docker.errors.NotFound('no such volume')
+    client.volumes.get.side_effect = _get_volume
+
+    return client, container_mock, volume_mocks
+
+
+def test_admin_delete_removes_running_container_and_volumes(operator_client, admin_client):
+    create_node(operator_client, 'container-cleanup-node')
+    container_name = 'vantage6-container-cleanup-node-user'
+    volume_names = [f'{container_name}-vol', f'{container_name}-vpn-vol',
+                     f'{container_name}-ssh-vol', f'{container_name}-squid-vol']
+    client, container_mock, volume_mocks = _fake_docker_client(container_name, volume_names)
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=client):
+        admin_client.post('/nodes/container-cleanup-node/delete')
+
+    container_mock.stop.assert_called_once()
+    container_mock.remove.assert_called_once()
+    for vol in volume_mocks.values():
+        vol.remove.assert_called_once()
+    assert 'container-cleanup-node' not in [c['name'] for c in get_node_configs()]
+
+
+def test_admin_delete_of_stopped_node_still_removes_volumes(operator_client, admin_client):
+    create_node(operator_client, 'stopped-cleanup-node')
+    container_name = 'vantage6-stopped-cleanup-node-user'
+    volume_names = [f'{container_name}-vol']
+    client, container_mock, volume_mocks = _fake_docker_client(None, volume_names)
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=client):
+        admin_client.post('/nodes/stopped-cleanup-node/delete')
+
+    container_mock.stop.assert_not_called()
+    volume_mocks[volume_names[0]].remove.assert_called_once()
+    assert 'stopped-cleanup-node' not in [c['name'] for c in get_node_configs()]
+
+
+def test_non_admin_delete_never_touches_docker(operator_client):
+    # A "leave" must not affect the underlying container/volumes at all -
+    # get_docker_client() shouldn't even be called.
+    create_node(operator_client, 'leave-no-docker-node')
+
+    with patch('nodemanager.nodes.get_docker_client') as get_client:
+        operator_client.post('/nodes/leave-no-docker-node/delete')
+
+    get_client.assert_not_called()
+
+
+def test_admin_delete_aborts_config_when_docker_unreachable(operator_client, admin_client):
+    # If the container can't be cleaned up, the config must survive too -
+    # deleting it anyway would orphan the container with no way left to
+    # remove it from the UI.
+    create_node(operator_client, 'no-docker-node')
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=None):
+        admin_client.post('/nodes/no-docker-node/delete')
+
+    assert 'no-docker-node' in [c['name'] for c in get_node_configs()]
+
+
+def test_admin_delete_warns_but_continues_when_volume_removal_fails(operator_client, admin_client):
+    # A stuck volume (e.g. still in use) shouldn't block the delete - the
+    # container and config are already gone by that point.
+    create_node(operator_client, 'stuck-volume-node')
+    container_name = 'vantage6-stuck-volume-node-user'
+    volume_names = [f'{container_name}-vol']
+    client, container_mock, volume_mocks = _fake_docker_client(None, volume_names)
+    volume_mocks[volume_names[0]].remove.side_effect = docker.errors.APIError('volume in use')
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=client):
+        resp = admin_client.post('/nodes/stuck-volume-node/delete', follow_redirects=True)
+
+    assert 'stuck-volume-node' not in [c['name'] for c in get_node_configs()]
+    assert b'could not remove volume' in resp.data.lower()
+
+
+def test_delete_confirm_dialog_mentions_container_and_volumes(operator_client, admin_client):
+    # The onsubmit="confirm(...)" attributes are nested-quoted Jinja/JS - a
+    # broken escape is a runtime JS error invisible to pytest, so at least
+    # confirm the template renders and the new wording made it into the
+    # attribute value for both the running and stopped branches, on both
+    # the list page and the single-node page.
+    create_node(operator_client, 'stopped-confirm-node')
+    create_node(operator_client, 'running-confirm-node')
+    container_name = 'vantage6-running-confirm-node-user'
+    client, container_mock, _ = _fake_docker_client(container_name)
+    container_mock.status = 'running'
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=client), \
+         patch('nodemanager.docker_utils.get_docker_client', return_value=client):
+        list_resp = admin_client.get('/nodes')
+        stopped_view_resp = admin_client.get('/nodes/stopped-confirm-node')
+        running_view_resp = admin_client.get('/nodes/running-confirm-node')
+
+    # One occurrence per node row's confirm() plus one in the bulk-delete JS.
+    assert list_resp.data.count(b'including node data') == 3
+    assert b'including node data' in stopped_view_resp.data
+    assert b'including node data' in running_view_resp.data
+    assert b'keeps running unmanaged' not in list_resp.data
+
+
+def test_admin_bulk_delete_removes_containers_and_volumes(operator_client, admin_client):
+    create_node(operator_client, 'bulk-cleanup-a')
+    create_node(operator_client, 'bulk-cleanup-b')
+    container_a = 'vantage6-bulk-cleanup-a-user'
+    container_b = 'vantage6-bulk-cleanup-b-user'
+
+    client = MagicMock()
+    containers = {container_a: MagicMock(), container_b: MagicMock()}
+
+    def _get_container(name):
+        if name in containers:
+            return containers[name]
+        raise docker.errors.NotFound('no such container')
+    client.containers.get.side_effect = _get_container
+    client.volumes.get.side_effect = docker.errors.NotFound('no such volume')
+
+    with patch('nodemanager.nodes.get_docker_client', return_value=client):
+        admin_client.post('/nodes/bulk/delete', data={'names': ['bulk-cleanup-a', 'bulk-cleanup-b']})
+
+    for container in containers.values():
+        container.stop.assert_called_once()
+        container.remove.assert_called_once()
+    names = [c['name'] for c in get_node_configs()]
+    assert 'bulk-cleanup-a' not in names
+    assert 'bulk-cleanup-b' not in names

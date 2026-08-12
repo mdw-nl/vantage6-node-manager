@@ -1,7 +1,8 @@
 """Routes that mutate a running container's state via the Docker daemon: start,
-stop, restart (singly or in bulk). Config-only mutations (delete, bulk-delete)
-and passive views (logs) live in nodes.py instead - see the split rationale in
-the refactor plan.
+stop, restart (singly or in bulk). Passive views (logs) live in nodes.py
+instead - see the split rationale in the refactor plan. Delete/bulk-delete
+also live in nodes.py despite mutating container state, since admin's "real
+delete" removes the container/volumes as part of the same config mutation.
 """
 import os
 import docker

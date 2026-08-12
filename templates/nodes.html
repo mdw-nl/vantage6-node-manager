@@ -182,7 +182,7 @@
                             </div>
                             <form method="POST" action="{{ url_for('nodes.delete_node', name=config.name) }}"
                                   class="d-inline ms-1"
-                                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting only removes it from the node manager - the container keeps running unmanaged. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This cannot be undone.'{% endif %}{% else %}'Remove node \'{{ config.name }}\' from your list? It stays untouched for anyone else who already has access to it.'{% endif %});">
+                                  onsubmit="return confirm({% if current_user.role == 'admin' %}{% if config.status == 'running' %}'Node \'{{ config.name }}\' is still running. Deleting will stop and remove its container plus all its volumes (including node data). This cannot be undone. Continue?'{% else %}'Delete node \'{{ config.name }}\'? This also removes its Docker container and volumes (including node data). This cannot be undone.'{% endif %}{% else %}'Remove node \'{{ config.name }}\' from your list? It stays untouched for anyone else who already has access to it.'{% endif %});">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"
                                         title="{{ 'Delete' if current_user.role == 'admin' else 'Remove from my list' }}">
                                     <i class="bi bi-trash"></i>
@@ -274,7 +274,7 @@
         const names = getCheckedNames();
         if (names.length === 0) return;
         const message = IS_ADMIN
-            ? 'Delete ' + names.length + ' selected node(s)? This cannot be undone.'
+            ? 'Delete ' + names.length + ' selected node(s)? This also stops and removes their Docker containers and volumes (including node data). This cannot be undone.'
             : 'Remove ' + names.length + ' selected node(s) from your list? They stay untouched for anyone else who already has access.';
         if (!confirm(message)) return;
         submitBulkForm('bulkDeleteForm', names);
