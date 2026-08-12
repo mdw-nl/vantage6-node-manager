@@ -212,3 +212,49 @@ def test_export_then_reimport_round_trips_the_private_key(admin_client):
     key_path = VANTAGE6_CONFIG_DIR / 'private_keys' / 'roundtrip-node_private_key.pem'
     assert key_path.exists()
     assert b'roundtrip-secret' in key_path.read_bytes()
+
+
+# --- images.node survives export/import, and import validates it same as create/edit ---
+
+def test_export_then_reimport_round_trips_configured_image(operator_client):
+    create_node(operator_client, 'image-roundtrip-node', server_url='https://example.com',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0')
+
+    export_resp = operator_client.get('/nodes/image-roundtrip-node/export')
+    assert export_resp.mimetype == 'application/x-yaml'
+    exported_yaml_bytes = export_resp.data
+
+    operator_client.post('/nodes/image-roundtrip-node/delete')
+
+    reimport_resp = operator_client.post(
+        '/nodes/import',
+        data={'backup_file': (io.BytesIO(exported_yaml_bytes), 'image-roundtrip-node.yaml')},
+        content_type='multipart/form-data',
+    )
+    assert reimport_resp.status_code == 302
+
+    config = next(c for c in get_node_configs() if c['name'] == 'image-roundtrip-node')
+    assert config['data']['images']['node'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0'
+
+
+def test_yaml_import_rejects_malformed_image(operator_client):
+    # Same typo new_node()/edit_node() reject (a stray "/" where the tag's
+    # ":" belongs) - import must apply the same check, or a bad config
+    # re-imported from a backup silently reintroduces the "manifest unknown"
+    # failure at start time instead of being caught here.
+    yaml_content = yaml.dump({
+        'server_url': 'https://example.com',
+        'api_key': 'malformed-image-import-key',
+        'databases': [{'label': 'default', 'uri': '/tmp/test.csv', 'type': 'csv'}],
+        'images': {'node': 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite/4.14.0-rc8'},
+    })
+
+    resp = operator_client.post(
+        '/nodes/import',
+        data={'backup_file': (io.BytesIO(yaml_content.encode()), 'bad-image-import.yaml')},
+        content_type='multipart/form-data',
+        follow_redirects=True,
+    )
+
+    assert b'valid image reference' in resp.data.lower()
+    assert 'bad-image-import' not in [c['name'] for c in get_node_configs()]

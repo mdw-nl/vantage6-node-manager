@@ -202,6 +202,55 @@ def test_start_falls_back_to_latest_when_server_unreachable(operator_client):
     assert b'could not detect server version' in resp.data.lower()
 
 
+def test_start_uses_node_configured_image_without_detecting_version(operator_client):
+    create_node(operator_client, 'configured-image-node', server_url='https://example.com',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0')
+    client = _fake_client()
+    get_server_version_mock = MagicMock()
+
+    with _apply(_docker_patches(client, **{
+        'nodemanager.node_actions.get_server_version': get_server_version_mock,
+    })):
+        operator_client.post('/nodes/configured-image-node/start')
+
+    assert _run_image(client) == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0'
+    # A node-level configured image is a known-good value - no need to pay
+    # for a server round-trip just to derive the same answer.
+    get_server_version_mock.assert_not_called()
+
+
+def test_start_prefers_previous_container_image_over_configured_image(operator_client):
+    create_node(operator_client, 'stopped-with-configured-image', server_url='https://example.com',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0')
+    stopped = MagicMock(status='exited')
+    stopped.image.tags = ['ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8']
+    client = _fake_client(container_get_effect=lambda name: stopped)
+
+    with _apply(_docker_patches(client)):
+        operator_client.post('/nodes/stopped-with-configured-image/start')
+
+    assert _run_image(client) == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8'
+
+
+def test_start_translates_docker_pull_failure_into_readable_flash(operator_client):
+    # containers.run() pulls the image first if it isn't cached - a bad
+    # tag/registry surfaces as a raw Docker Engine API error ("manifest
+    # unknown") unless node_actions translates it. Non-technical users need
+    # the translated message, not a docker+http:// URL.
+    create_node(operator_client, 'bad-image-node', server_url='https://example.com',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8')
+    client = _fake_client()
+    client.containers.run.side_effect = docker.errors.APIError(
+        'manifest unknown', explanation='manifest unknown'
+    )
+
+    with _apply(_docker_patches(client)):
+        resp = operator_client.post('/nodes/bad-image-node/start', follow_redirects=True)
+
+    assert b"edit page" in resp.data.lower()
+    assert b'http+docker://' not in resp.data
+
+
 def test_start_node_when_docker_unavailable_does_not_crash(operator_client):
     create_node(operator_client, 'no-docker-node')
     with patch('nodemanager.node_actions.get_docker_client', return_value=None):

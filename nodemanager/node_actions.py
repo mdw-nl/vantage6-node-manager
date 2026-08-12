@@ -13,7 +13,8 @@ from flask_login import current_user
 from nodemanager.config import VANTAGE6_CONFIG_DIR, VANTAGE6_DATA_DIR, APPNAME
 from nodemanager.docker_utils import (
     get_docker_client, get_node_status, find_local_node_image,
-    get_default_node_image, build_database_env_and_volumes, container_path_to_host_path
+    get_default_node_image, get_configured_node_image, build_database_env_and_volumes,
+    container_path_to_host_path
 )
 from nodemanager.node_config import get_node_configs, can_access_config
 from nodemanager.server_api import get_server_version
@@ -65,6 +66,12 @@ def _create_node_container(name, config, client, requested_image=None):
     image = requested_image or previous_image
     if image and image == previous_image:
         flash(f'Reusing previously used node image: {image}', 'info')
+
+    if not image:
+        configured_image = get_configured_node_image(config['data'])
+        if configured_image:
+            image = configured_image
+            flash(f'Using node image configured for this node: {image}', 'info')
 
     if not image:
         # Get server version to determine appropriate node image
@@ -193,22 +200,32 @@ def _create_node_container(name, config, client, requested_image=None):
     cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
 
     # Create and start the container
-    client.containers.run(
-        image,
-        command=cmd,
-        volumes=volumes,
-        detach=True,
-        labels={
-            f'{APPNAME}-type': 'node',
-            'system': str(config['type'] == 'system'),
-            'name': name
-        },
-        environment=env,
-        name=container_name,
-        auto_remove=False,
-        tty=True,
-        extra_hosts={"host.docker.internal": "host-gateway"}
-    )
+    try:
+        client.containers.run(
+            image,
+            command=cmd,
+            volumes=volumes,
+            detach=True,
+            labels={
+                f'{APPNAME}-type': 'node',
+                'system': str(config['type'] == 'system'),
+                'name': name
+            },
+            environment=env,
+            name=container_name,
+            auto_remove=False,
+            tty=True,
+            extra_hosts={"host.docker.internal": "host-gateway"}
+        )
+    except docker.errors.APIError as e:
+        # containers.run() pulls `image` first if it isn't cached locally, so
+        # a bad tag/registry surfaces here as a raw Docker Engine API error
+        # (e.g. "manifest unknown") - translate it into something that
+        # points at the fix instead of a 500 from a docker+http URL.
+        raise RuntimeError(
+            f'Could not pull or run image "{image}". Check the Node Image on this node\'s '
+            f'Edit page. Docker said: {e.explanation or e}'
+        ) from e
     return True
 
 
@@ -353,7 +370,7 @@ def bulk_start_nodes():
             except docker.errors.NotFound:
                 pass
 
-            image = previous_image
+            image = previous_image or get_configured_node_image(config['data'])
 
             if not image:
                 server_url = config['data'].get('server_url')
@@ -441,22 +458,28 @@ def bulk_start_nodes():
             system_folders_option = "--system" if config['type'] == 'system' else "--user"
             cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
 
-            client.containers.run(
-                image,
-                command=cmd,
-                volumes=volumes,
-                detach=True,
-                labels={
-                    f'{APPNAME}-type': 'node',
-                    'system': str(config['type'] == 'system'),
-                    'name': name
-                },
-                environment=env,
-                name=container_name,
-                auto_remove=False,
-                tty=True,
-                extra_hosts={"host.docker.internal": "host-gateway"}
-            )
+            try:
+                client.containers.run(
+                    image,
+                    command=cmd,
+                    volumes=volumes,
+                    detach=True,
+                    labels={
+                        f'{APPNAME}-type': 'node',
+                        'system': str(config['type'] == 'system'),
+                        'name': name
+                    },
+                    environment=env,
+                    name=container_name,
+                    auto_remove=False,
+                    tty=True,
+                    extra_hosts={"host.docker.internal": "host-gateway"}
+                )
+            except docker.errors.APIError as e:
+                raise RuntimeError(
+                    f'Could not pull or run image "{image}". Check the Node Image on this '
+                    f'node\'s Edit page. Docker said: {e.explanation or e}'
+                ) from e
             log_event(current_user.id, current_user.role, 'node.start', node_name=name, details='bulk')
             started.append(name)
         except Exception as e:

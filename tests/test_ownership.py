@@ -351,6 +351,93 @@ def test_edit_node_allows_keeping_its_own_api_key(operator_client):
     assert config['data']['server_url'] == 'https://updated.example.com'
 
 
+# --- new_node()/edit_node() persist the per-node image override ---
+
+def test_new_node_persists_configured_image(operator_client):
+    create_node(operator_client, 'node-with-image',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0')
+
+    config = next(c for c in get_node_configs() if c['name'] == 'node-with-image')
+    # images.node, not a top-level "image" key - matches the schema the real
+    # vantage6 CLI reads (vantage6.cli.node.start), so configs generated here
+    # stay usable with `v6 node start` directly too.
+    assert config['data']['images']['node'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0'
+
+
+def test_new_node_leaves_image_unset_when_not_provided(operator_client):
+    create_node(operator_client, 'node-without-image')
+
+    config = next(c for c in get_node_configs() if c['name'] == 'node-without-image')
+    assert config['data']['images'] is None
+
+
+def test_new_node_rejects_malformed_image(operator_client):
+    # Slash where a colon belongs before the tag - the exact typo that
+    # otherwise surfaces as a raw Docker Engine "manifest unknown" error
+    # deep in node_actions instead of a clear message here.
+    resp = operator_client.post('/nodes/new', data={
+        'name': 'malformed-image-node',
+        'server_url': 'https://example.com',
+        'api_key': 'test-api-key-malformed-image-node',
+        'db_uri': '/tmp/test.csv',
+        'db_type': 'csv',
+        'image': 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite/4.14.0-rc8',
+    })
+
+    assert b'valid image reference' in resp.data.lower()
+    assert 'malformed-image-node' not in [c['name'] for c in get_node_configs()]
+
+
+def test_edit_node_updates_configured_image(operator_client):
+    create_node(operator_client, 'editable-image-node',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8')
+
+    operator_client.post('/nodes/editable-image-node/edit', data={
+        'server_url': 'https://example.com',
+        'api_key': 'test-api-key-editable-image-node',
+        'db_uri': '/tmp/test.csv',
+        'db_type': 'csv',
+        'image': 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0',
+    })
+
+    config = next(c for c in get_node_configs() if c['name'] == 'editable-image-node')
+    assert config['data']['images']['node'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.15.0'
+
+
+def test_edit_node_clears_image_when_left_blank(operator_client):
+    create_node(operator_client, 'clearable-image-node',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8')
+
+    operator_client.post('/nodes/clearable-image-node/edit', data={
+        'server_url': 'https://example.com',
+        'api_key': 'test-api-key-clearable-image-node',
+        'db_uri': '/tmp/test.csv',
+        'db_type': 'csv',
+        'image': '',
+    })
+
+    config = next(c for c in get_node_configs() if c['name'] == 'clearable-image-node')
+    assert config['data']['images'] is None
+
+
+def test_edit_node_rejects_malformed_image(operator_client):
+    create_node(operator_client, 'edit-malformed-image-node',
+                image='ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8')
+
+    resp = operator_client.post('/nodes/edit-malformed-image-node/edit', data={
+        'server_url': 'https://example.com',
+        'api_key': 'test-api-key-edit-malformed-image-node',
+        'db_uri': '/tmp/test.csv',
+        'db_type': 'csv',
+        'image': 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite/4.15.0',
+    })
+
+    assert b'valid image reference' in resp.data.lower()
+    config = next(c for c in get_node_configs() if c['name'] == 'edit-malformed-image-node')
+    # Rejected edit must not clobber the previously valid value.
+    assert config['data']['images']['node'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8'
+
+
 # --- Admin's real delete must also clean up the node's private key file ---
 
 def test_admin_delete_removes_orphaned_private_key_file(operator_client, admin_client):

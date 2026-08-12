@@ -16,7 +16,9 @@ The current version of the Node Manager works specifically with Vantage6 version
 - 📝 **Configuration Management**: Simple form-based node configuration creation
 - 📈 **Dashboard Overview**: Quick statistics and status of all nodes
 - 🔄 **Multi-node Support**: Manage multiple node configurations from a single interface
-- 🔍 **Automatic Version Detection**: Automatically detects server version and uses matching node image
+- 🔍 **Configurable Node Image**: Pinned, known-good default image, with a per-node override for
+  organizations running nodes against multiple vantage6 server versions (see
+  [Node Docker Image](#node-docker-image))
 - 🔐 **End-to-End Encryption**: Support for RSA-based encryption for secure communication
 - ⚙️ **Advanced Options**: Manual Docker image override for custom deployments
 
@@ -193,10 +195,11 @@ Vantage6 supports end-to-end encryption to protect communication between nodes a
 1. Go to the **Dashboard** or **All Nodes** page
 2. Find your node in the list
 3. Click the **Start** button (▶️)
-4. The application will automatically detect the server version and use the appropriate node image
-5. The node will start in a Docker container
+4. The node will start in a Docker container, using its configured image (or the app's pinned
+   default if none is set) - see [Node Docker Image](#node-docker-image) for exactly how that's
+   chosen and how to change it
 
-**Note**: The node version is automatically determined by querying the server's `/api/version` endpoint. If you need to use a specific version, use the "Advanced Start" option in the node details page.
+**Note**: To change what image a node uses, set its **Node Image** field on the node's Edit page.
 
 ### Viewing Node Details
 
@@ -248,7 +251,51 @@ logging:
   file: my-node.log
 encryption:
   enabled: false
+images:
+  node: ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8
 ```
+
+### Node Docker Image
+
+Every node runs as a Docker container built from a specific image (`ghcr.io/.../node-lite:<tag>`).
+Something has to decide which one - this section explains where that decision comes from and how
+to change it.
+
+**Why it isn't just "whatever version the server is":** vantage6 node images are published under
+release-candidate-suffixed tags (e.g. `4.14.0-rc8`), which don't line up 1:1 with the plain version
+string a server reports over its own `/api/version` endpoint (e.g. `4.14.0`). There's no reliable
+way to turn one into the other automatically, so instead of guessing, the app uses a pinned default
+that's known to work, and lets that be overridden per node.
+
+**Where the default comes from:** `NODE_IMAGE_REGISTRY` / `NODE_IMAGE_TAG` environment variables
+(see [`nodemanager/config.py`](nodemanager/config.py)), defaulting to
+`ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8` - kept in sync with the server image
+pinned in [`server/docker-compose.server.yml`](server/docker-compose.server.yml). If you deploy
+against a different server version, update these (or the per-node override below) to match.
+
+**Per-node override:** the **Node Image** field on the Create/Edit Node page is pre-filled with the
+pinned default above, but is editable - useful if your organization runs nodes against servers of
+different versions and this one needs something other than the default. Clearing it falls back to
+the pinned default at start time rather than saving an explicit value. This is saved as
+`images.node` in the node's config YAML - the same key
+[vantage6's own CLI reads](https://github.com/vantage6/vantage6/blob/main/vantage6/cli/node/start.py)
+(`v6 node start` uses it too when `--image` isn't passed), so a config generated here still works
+if you ever run the real CLI against it directly.
+
+A value here must end in `:tag` (or `@sha256:digest`) - saving one that doesn't (e.g. a stray `/`
+where the `:` belongs) is rejected immediately with a message, rather than failing later with a
+cryptic Docker registry error.
+
+**Resolution order when starting a node** (first match wins):
+1. The image the node's container last actually ran (so a plain restart doesn't depend on
+   re-pulling from a registry that might not be reachable)
+2. This node's configured image (`images.node`, above)
+3. A locally-cached image whose tag matches the server's detected version, if one happens to exist
+4. The pinned default (`NODE_IMAGE_REGISTRY`/`NODE_IMAGE_TAG`)
+
+If Docker can't actually pull whichever image this resolves to (wrong tag, unreachable registry),
+the start fails with a message naming the image and pointing at the node's Edit page - check there
+first.
 
 ## API Endpoints
 
@@ -269,11 +316,15 @@ Response:
 ```json
 {
   "success": true,
-  "version": "4.7.1",
+  "version": "4.14.0",
   "server_url": "https://server.vantage6.ai",
-  "recommended_image": "harbor2.vantage6.ai/infrastructure/node:4.7.1"
+  "recommended_image": "ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8"
 }
 ```
+
+`recommended_image` is the app's pinned default (see [Node Docker Image](#node-docker-image)) -
+`version` is reported for visibility, but isn't used to derive the image, for the reasons explained
+there.
 
 ## Architecture
 

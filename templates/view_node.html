@@ -49,9 +49,6 @@
                 <i class="bi bi-play-fill"></i> Start
             </button>
         </form>
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#advancedStartModal">
-            <i class="bi bi-gear"></i> Advanced
-        </button>
         {% endif %}
         {% else %}
         {% if config.status == 'running' %}
@@ -314,42 +311,6 @@
             </div>
         </div>
         {% endif %}
-    </div>
-</div>
-
-<div class="modal fade" id="advancedStartModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" style="text-transform: none; letter-spacing: normal; font-size: 0.95rem;">
-                    <i class="bi bi-gear"></i> Advanced Start
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST" action="{{ url_for('actions.start_node', name=config.name) }}">
-                <div class="modal-body">
-                    <div class="alert alert-info" style="font-size: 0.85rem;">
-                        <i class="bi bi-info-circle"></i> By default the node version is auto-detected from the server.
-                    </div>
-                    <div class="mb-3">
-                        <label for="customImage" class="form-label">Docker Image</label>
-                        <input type="text" class="form-control" id="customImage" name="image"
-                               placeholder="harbor2.vantage6.ai/infrastructure/node:4.7.1">
-                        <div class="form-text">Leave empty to auto-detect.</div>
-                    </div>
-                    <div style="font-size: 0.85rem;">
-                        <span class="text-secondary">Server:</span> {{ config.data.server_url }}<br>
-                        <span class="text-secondary">API path:</span> {{ config.data.api_path }}
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-sm btn-success">
-                        <i class="bi bi-play-fill"></i> Start
-                    </button>
-                </div>
-            </form>
-        </div>
     </div>
 </div>
 {% endblock %}

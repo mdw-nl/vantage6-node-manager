@@ -18,7 +18,8 @@ from werkzeug.utils import secure_filename
 
 from nodemanager.config import VANTAGE6_CONFIG_DIR, APPNAME
 from nodemanager.docker_utils import (
-    get_docker_client, get_node_status, get_running_nodes, remove_node_container_and_volumes
+    get_docker_client, get_node_status, get_running_nodes, remove_node_container_and_volumes,
+    get_configured_node_image, get_default_node_image
 )
 from nodemanager.node_config import (
     get_node_configs, add_node_owner, set_node_owners, remove_node_owner,
@@ -29,6 +30,19 @@ from nodemanager.auth import admin_required, user_exists, list_assignable_userna
 from nodemanager.audit import log_event
 
 nodes_bp = Blueprint('nodes', __name__)
+
+
+def _is_valid_image_ref(image):
+    """True if `image` looks like a pullable Docker reference (ends in
+    ":tag" or "@sha256:digest"), false for things like a stray "/" where a
+    ":" belongs - the mistake that produces a cryptic Docker Engine API
+    error ("manifest unknown", tag defaulted to "latest") deep in
+    node_actions instead of a clear message at save time.
+    """
+    if '@sha256:' in image:
+        return True
+    last_segment = image.rsplit('/', 1)[-1]
+    return ':' in last_segment
 
 
 @nodes_bp.route('/')
@@ -191,7 +205,7 @@ def new_node():
             conflict_error = _node_conflict_error(name, api_key)
             if conflict_error:
                 flash(conflict_error, 'error')
-                return render_template('new_node.html')
+                return render_template('new_node.html', default_image=get_default_node_image())
 
             server_url = request.form.get('server_url')
             port = request.form.get('port')
@@ -208,6 +222,20 @@ def new_node():
             # registry (e.g. local `docker build` images used in development)
             allow_local_images = request.form.get('allow_local_images') == 'on'
 
+            # Node image the user confirmed on the form (auto-filled from the
+            # server's detected version, but editable for orgs running nodes
+            # against servers of different versions). Empty means "let
+            # node_actions figure it out at start time" (see get_default_node_image).
+            # Stored under images.node - the vantage6 CLI's own schema for
+            # pinning this (vantage6.cli.node.start reads config["images"]["node"]),
+            # not a node-manager invention, so configs stay usable with `v6 node start` too.
+            image = request.form.get('image', '').strip() or None
+            if image and not _is_valid_image_ref(image):
+                flash(f'Node Image "{image}" doesn\'t look like a valid image reference - '
+                      f'it should end in ":tag" (e.g. .../node-lite:4.14.0-rc8). '
+                      f'Did you mean a colon instead of the last "/"?', 'error')
+                return render_template('new_node.html', default_image=get_default_node_image())
+
             # Encryption configuration
             encryption_enabled, private_key_path = _process_encryption_form(name)
 
@@ -218,6 +246,7 @@ def new_node():
                 'port': int(port) if port else None,
                 'api_path': api_path,
                 'task_dir': task_dir,
+                'images': {'node': image} if image else None,
                 'databases': [{
                     'label': db_label,
                     'uri': db_uri,
@@ -265,7 +294,7 @@ def new_node():
         except Exception as e:
             flash(f'Error creating configuration: {str(e)}', 'error')
 
-    return render_template('new_node.html')
+    return render_template('new_node.html', default_image=get_default_node_image())
 
 
 @nodes_bp.route('/nodes/<name>/edit', methods=['GET', 'POST'])
@@ -274,9 +303,10 @@ def edit_node(name):
     Edit an existing node's configuration in place.
 
     Unlike new_node(), this loads the node's current YAML and only
-    overwrites the specific fields the form covers - anything else already
-    in the file (e.g. images, node_extra_hosts, extra databases beyond the
-    first, or fields added by hand-editing/importing) survives untouched.
+    overwrites the specific fields the form covers (including images.node,
+    now that the form exposes it) - anything else already in the file (e.g.
+    node_extra_hosts, extra databases beyond the first, or fields added by
+    hand-editing/importing) survives untouched.
     Renaming isn't supported here: the config filename, container name and
     the server's own record of the node are all tied to the current name.
     """
@@ -297,12 +327,28 @@ def edit_node(name):
             data['api_path'] = request.form.get('api_path', '/api')
             data['task_dir'] = request.form.get('task_dir') or data.get('task_dir', '/tmp/vantage6')
 
+            image = request.form.get('image', '').strip() or None
+            if image and not _is_valid_image_ref(image):
+                flash(f'Node Image "{image}" doesn\'t look like a valid image reference - '
+                      f'it should end in ":tag" (e.g. .../node-lite:4.14.0-rc8). '
+                      f'Did you mean a colon instead of the last "/"?', 'error')
+                return render_template(
+                    'edit_node.html', config=config,
+                    configured_image=get_configured_node_image(config['data'] or {}),
+                    default_image=get_default_node_image()
+                )
+            data['images'] = {'node': image} if image else None
+
             api_key = request.form.get('api_key')
             if api_key:
                 conflict_error = _api_key_conflict_error(name, api_key, configs)
                 if conflict_error:
                     flash(conflict_error, 'error')
-                    return render_template('edit_node.html', config=config)
+                    return render_template(
+                        'edit_node.html', config=config,
+                        configured_image=get_configured_node_image(config['data'] or {}),
+                        default_image=get_default_node_image()
+                    )
                 data['api_key'] = api_key
 
             db_label = request.form.get('db_label', 'default')
@@ -340,7 +386,11 @@ def edit_node(name):
         except Exception as e:
             flash(f'Error updating configuration: {str(e)}', 'error')
 
-    return render_template('edit_node.html', config=config)
+    return render_template(
+        'edit_node.html', config=config,
+        configured_image=get_configured_node_image(config['data'] or {}),
+        default_image=get_default_node_image()
+    )
 
 
 @nodes_bp.route('/nodes/<name>')
@@ -381,8 +431,10 @@ def view_node(name):
     # Task history is fetched client-side (see refreshTaskHistory() in the
     # template) so a slow or unreachable vantage6 server can't stall this
     # page's initial load.
-    return render_template('view_node.html', config=config, container_info=container_info,
-                            running_tasks=running_tasks)
+    return render_template(
+        'view_node.html', config=config, container_info=container_info,
+        running_tasks=running_tasks
+    )
 
 
 @nodes_bp.route('/nodes/<name>/logs')
@@ -558,6 +610,11 @@ def _write_imported_config(name, config_data):
     conflict_error = _node_conflict_error(name, config_data.get('api_key'))
     if conflict_error:
         return conflict_error
+
+    imported_image = (config_data.get('images') or {}).get('node')
+    if imported_image and not _is_valid_image_ref(imported_image):
+        return (f'Node Image "{imported_image}" in the imported config doesn\'t look like a valid '
+                f'image reference - it should end in ":tag" (e.g. .../node-lite:4.14.0-rc8).')
 
     config_file = VANTAGE6_CONFIG_DIR / f'{name}.yaml'
     with open(config_file, 'w') as f:

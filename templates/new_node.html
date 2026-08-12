@@ -52,6 +52,17 @@
                                    value="/api" placeholder="/api">
                         </div>
                     </div>
+                    <div class="mt-3 mb-0">
+                        <label for="image" class="form-label">Node Image</label>
+                        <input type="text" class="form-control" id="image" name="image"
+                               value="{{ default_image }}">
+                        <div class="form-text">
+                            The Docker image this node runs, pre-filled with the app's default. This depends
+                            on which vantage6 server version this node connects to &mdash; change it if this
+                            node needs a different one than the default expects (check with whoever manages
+                            your server if you're not sure).
+                        </div>
+                    </div>
                 </div>
             </div>
 

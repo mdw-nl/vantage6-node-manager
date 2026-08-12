@@ -165,6 +165,18 @@ def get_default_node_image():
     return f"{NODE_IMAGE_REGISTRY}:{NODE_IMAGE_TAG}"
 
 
+def get_configured_node_image(config_data):
+    """
+    Return the image the user pinned for this node, if any.
+
+    Stored at images.node - the same key the real vantage6 CLI reads
+    (vantage6.cli.node.start: ctx.config.get("images").get("node")) - so
+    configs generated here stay usable with `v6 node start` directly, not
+    just through this app.
+    """
+    return (config_data.get('images') or {}).get('node')
+
+
 def get_running_nodes():
     """Get all running vantage6 node containers"""
     client = get_docker_client()
