@@ -211,6 +211,13 @@ Vantage6 supports end-to-end encryption to protect communication between nodes a
 2. Click the **Stop** button
 3. The node container will be stopped gracefully
 
+### Restarting a Node
+
+Clicking **Restart** doesn't just restart the process inside the container - it stops the
+container, removes it, and recreates it fresh from the node's current config file. This means
+editing a running node's configuration (database path, encryption key, log directory, etc.) and
+then clicking Restart is enough to apply the change; there's no need to Stop and Start separately.
+
 ## Configuration
 
 ### Environment Variables
