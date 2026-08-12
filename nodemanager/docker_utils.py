@@ -4,7 +4,7 @@ import docker
 from pathlib import Path
 from flask import flash
 
-from nodemanager.config import APPNAME
+from nodemanager.config import APPNAME, NODE_IMAGE_REGISTRY, NODE_IMAGE_TAG
 
 # Database types whose "uri" is a local file/folder rather than a connection
 # string (matches vantage6.cli.node.start.FILE_BASED_DATABASE_TYPES)
@@ -152,29 +152,17 @@ def find_local_node_image(client, version=None):
     return candidates[0][1]
 
 
-def get_node_image_for_version(version):
+def get_default_node_image():
     """
-    Determine the appropriate node Docker image based on server version.
-
-    Args:
-        version: Server version string (e.g., "4.7.1" or "4.7.0")
+    Return the node image to pull when no locally cached image matches the
+    running server's version (see NODE_IMAGE_REGISTRY/NODE_IMAGE_TAG in
+    nodemanager.config for why this is pinned rather than derived from the
+    server-reported version string).
 
     Returns:
         str: Docker image name with tag
     """
-    try:
-        # Extract major.minor from version (e.g., "4.7.1" -> "4.7")
-        parts = version.split('.')
-        if len(parts) >= 2:
-            major_minor = f"{parts[0]}.{parts[1]}"
-            # Use the exact version for patch-level compatibility
-            return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
-        else:
-            # Fallback if version format is unexpected
-            return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
-    except Exception:
-        # If parsing fails, use the provided version as-is
-        return f"ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:{version}"
+    return f"{NODE_IMAGE_REGISTRY}:{NODE_IMAGE_TAG}"
 
 
 def get_running_nodes():

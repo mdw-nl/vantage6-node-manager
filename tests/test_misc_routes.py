@@ -152,7 +152,7 @@ def test_api_server_version_success(operator_client):
     body = resp.get_json()
     assert body['success'] is True
     assert body['version'] == '4.9.0'
-    assert body['recommended_image'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.9.0'
+    assert body['recommended_image'] == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8'
 
 
 def test_api_server_version_error_from_server(operator_client):

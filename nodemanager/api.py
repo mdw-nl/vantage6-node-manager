@@ -4,7 +4,7 @@ history, server version lookup, RSA key generation) as well as external tools.
 from flask import Blueprint, request, jsonify
 from flask_login import current_user
 
-from nodemanager.docker_utils import get_node_status, get_node_image_for_version
+from nodemanager.docker_utils import get_node_status, get_default_node_image
 from nodemanager.node_config import get_node_configs, filter_visible_configs, can_access_config
 from nodemanager.server_api import get_server_version, get_node_health_status, get_running_tasks, get_task_history
 from nodemanager.crypto import generate_rsa_key_pair
@@ -85,7 +85,7 @@ def api_server_version():
             'server_url': server_url
         }), 200
 
-    recommended_image = get_node_image_for_version(version)
+    recommended_image = get_default_node_image()
 
     return jsonify({
         'success': True,

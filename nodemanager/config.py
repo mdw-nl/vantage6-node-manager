@@ -15,5 +15,14 @@ NODE_OWNERS_FILE = Path(os.environ.get('NODE_OWNERS_FILE', str(VANTAGE6_CONFIG_D
 AUDIT_LOG_FILE = Path(os.environ.get('AUDIT_LOG_FILE', str(VANTAGE6_CONFIG_DIR.parent / 'audit.log')))
 APPNAME = 'vantage6'
 
+# Default node image to pull when no locally cached image matches the running
+# server's version. node-lite only publishes release-candidate-suffixed tags
+# (e.g. "4.14.0-rc8"), which don't line up with the plain version string the
+# server reports over its /version endpoint, so this can't be derived
+# automatically - it's a pinned value, kept in sync with the server tag in
+# server/docker-compose.server.yml.
+NODE_IMAGE_REGISTRY = os.environ.get('NODE_IMAGE_REGISTRY', 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite')
+NODE_IMAGE_TAG = os.environ.get('NODE_IMAGE_TAG', '4.14.0-rc8')
+
 # Ensure config directory exists
 VANTAGE6_CONFIG_DIR.mkdir(parents=True, exist_ok=True)

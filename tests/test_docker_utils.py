@@ -8,7 +8,7 @@ import docker.errors
 
 from nodemanager.docker_utils import (
     container_path_to_host_path, build_database_env_and_volumes,
-    get_node_image_for_version, find_local_node_image, get_node_status, get_running_nodes,
+    get_default_node_image, find_local_node_image, get_node_status, get_running_nodes,
 )
 
 
@@ -115,14 +115,10 @@ def test_no_databases_returns_empty():
     assert volumes == []
 
 
-# --- get_node_image_for_version ---
+# --- get_default_node_image ---
 
-def test_get_node_image_for_version_builds_harbor_tag():
-    assert get_node_image_for_version('4.7.1') == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.7.1'
-
-
-def test_get_node_image_for_version_handles_short_version_string():
-    assert get_node_image_for_version('4') == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4'
+def test_get_default_node_image_uses_pinned_registry_and_tag():
+    assert get_default_node_image() == 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc8'
 
 
 # --- find_local_node_image ---

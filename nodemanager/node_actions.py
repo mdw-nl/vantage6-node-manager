@@ -13,7 +13,7 @@ from flask_login import current_user
 from nodemanager.config import VANTAGE6_CONFIG_DIR, VANTAGE6_DATA_DIR, APPNAME
 from nodemanager.docker_utils import (
     get_docker_client, get_node_status, find_local_node_image,
-    get_node_image_for_version, build_database_env_and_volumes, container_path_to_host_path
+    get_default_node_image, build_database_env_and_volumes, container_path_to_host_path
 )
 from nodemanager.node_config import get_node_configs, can_access_config
 from nodemanager.server_api import get_server_version
@@ -81,17 +81,15 @@ def _create_node_container(name, config, client, requested_image=None):
             if image:
                 flash(f'Using locally available node image matching server version {version}: {image}', 'info')
             else:
-                image = get_node_image_for_version(version)
-                flash(f'Using node image for server version {version}', 'info')
+                image = get_default_node_image()
+                flash(f'No local image matches server version {version}. Using configured default node image: {image}', 'info')
         else:
             image = find_local_node_image(client)
             if image:
                 flash(f'Could not detect server version ({error}). Using locally available node image: {image}', 'warning')
             else:
-                # node-lite doesn't publish a ":latest" tag, so fall back to the
-                # newest known-good release instead of a tag that's guaranteed to 404.
-                image = 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc9'
-                flash(f'Could not detect server version ({error}). Using latest node image.', 'warning')
+                image = get_default_node_image()
+                flash(f'Could not detect server version ({error}). Using configured default node image: {image}', 'warning')
 
     # Create Docker volumes (similar to official implementation)
     # These volumes persist data, VPN config, SSH config, and Squid proxy config
@@ -365,12 +363,8 @@ def bulk_start_nodes():
                 if server_url:
                     version, error = get_server_version(server_url, api_path, port)
                 image = find_local_node_image(client, version)
-                if not image and version:
-                    image = get_node_image_for_version(version)
             if not image:
-                # node-lite doesn't publish a ":latest" tag, so fall back to the
-                # newest known-good release instead of a tag that's guaranteed to 404.
-                image = 'ghcr.io/mdw-nl/vantage6/infrastructure/node-lite:4.14.0-rc9'
+                image = get_default_node_image()
 
             data_volume_name = f"{container_name}-vol"
             vpn_volume_name = f"{container_name}-vpn-vol"
