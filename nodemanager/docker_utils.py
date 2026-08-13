@@ -103,6 +103,52 @@ def build_database_env_and_volumes(databases):
     return env, volumes
 
 
+def verify_database_mounts(container, databases):
+    """
+    Check, right after a node container has been created, that every file-based
+    database actually resolved to a real file inside the container.
+
+    The "uri" a user enters must be a path on the Docker host itself - not a path
+    seen inside the Node Manager's own container (e.g. reusing this app's /data
+    from its own mounts, see container_path_to_host_path()). If it isn't a real
+    host path, Docker doesn't error: a missing bind-mount source is silently
+    created as an empty directory, so the node container starts "successfully"
+    and the mistake only surfaces much later - a FileNotFoundError deep inside a
+    task run, with nothing pointing back at the real cause. Checking it here
+    turns that into an immediate, actionable error instead.
+
+    `container` is the object containers.run() itself returned - not re-fetched
+    via containers.get(), which would be racing the daemon's own bookkeeping for
+    no reason since we already have it.
+
+    Returns None if every file-based database checks out, otherwise a
+    human-readable error string.
+    """
+    for db in databases or []:
+        label = db.get('label', '')
+        uri = db.get('uri', '')
+        db_type = (db.get('type') or '').lower()
+        if not label or not uri or db_type not in FILE_BASED_DATABASE_TYPES:
+            continue
+
+        mount_path = f'/mnt/{label}{Path(uri).suffix}'
+        try:
+            exit_code, _ = container.exec_run(f'test -f {mount_path}')
+        except docker.errors.APIError:
+            # Container isn't running to exec into - some other, unrelated
+            # failure already happened; don't mask it with this check.
+            return None
+        if exit_code != 0:
+            return (
+                f'Database file "{uri}" was not found on the Docker host (checked as '
+                f'{mount_path} inside the node container). The Database URI must be a '
+                f'path on the machine running Docker itself - not a path seen inside '
+                f'another container (e.g. this app\'s own /data). Fix the Database URI '
+                f'on this node\'s Edit page.'
+            )
+    return None
+
+
 def get_docker_client():
     """Get Docker client instance"""
     try:

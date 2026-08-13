@@ -50,3 +50,4 @@ Thumbs.db
 # Claude Code worktrees (isolated copies of this repo for agent sessions -
 # never meant to be tracked; got committed by accident once, see a1e4734)
 .claude/worktrees/
+.claude

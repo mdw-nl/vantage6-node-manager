@@ -438,6 +438,16 @@ python -m pytest tests/test_ownership.py::test_admin_delete_is_permanent -v
 - Ensure database files exist and are accessible
 - Check Docker logs: `docker logs <container-name>`
 
+**Problem**: `Database file "..." was not found on the Docker host`
+
+**Solution**: The Database URI must be a path on the machine actually running
+Docker - not a path as seen inside another container (for example, don't reuse
+this app's own `/data`, which only exists inside the Node Manager's container,
+not on the host). Fix the Database URI on the node's Edit page to the real host
+path. The app checks this automatically right when a node starts and stops the
+container immediately if the file isn't there, rather than letting the node
+come up with no data and fail later during a task.
+
 ### Cannot Access Web Interface
 
 **Problem**: Cannot connect to `http://localhost:5000`

@@ -33,6 +33,11 @@ def _fake_client(container_get_effect=None):
         container_get_effect if container_get_effect is not None
         else docker.errors.NotFound('no such container')
     )
+    # verify_database_mounts() execs into the container containers.run() just
+    # returned - default that to "file found" so tests not exercising it don't
+    # have to know it exists. Individual tests override .exec_run.return_value
+    # to simulate a missing/misresolved database mount.
+    client.containers.run.return_value.exec_run.return_value = (0, b'')
 
     volumes = {}
 
@@ -129,6 +134,32 @@ def test_start_fresh_node_builds_expected_container(operator_client):
 
     # DB config from create_node()'s defaults (label "default", csv db, /tmp/test.csv).
     assert kwargs['environment'].get('DEFAULT_DATABASE_URI') == 'default.csv'
+
+
+def test_start_fails_fast_when_database_file_missing_on_host(operator_client):
+    """If the Database URI resolves to nothing on the Docker host (e.g. a user
+    pasted a container-side path like this app's own /data instead of the real
+    host path), Docker itself doesn't error - it silently mounts an empty
+    directory. start_node() must catch that immediately, tear the container
+    back down, and surface an actionable error instead of leaving a node
+    "running" with no data."""
+    from nodemanager.audit import read_events
+
+    create_node(operator_client, 'missing-db-node', server_url='https://example.com')
+    client = _fake_client()
+    client.containers.run.return_value.exec_run.return_value = (1, b'')
+
+    with _apply(_docker_patches(client)):
+        resp = operator_client.post('/nodes/missing-db-node/start',
+                                     data={'image': 'harbor2.vantage6.ai/infrastructure/node:4.7.0'},
+                                     follow_redirects=True)
+
+    assert b'error starting node' in resp.data.lower()
+    assert b'not found' in resp.data.lower()
+    client.containers.run.return_value.remove.assert_called_once_with(force=True)
+
+    actions = [e['action'] for e in read_events() if e['node_name'] == 'missing-db-node']
+    assert 'node.start' not in actions
 
 
 def test_start_node_with_encryption_mounts_private_key(operator_client):

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import docker.errors
 
 from nodemanager.docker_utils import (
-    container_path_to_host_path, build_database_env_and_volumes,
+    container_path_to_host_path, build_database_env_and_volumes, verify_database_mounts,
     get_default_node_image, find_local_node_image, get_node_status, get_running_nodes,
 )
 
@@ -113,6 +113,82 @@ def test_no_databases_returns_empty():
     env, volumes = build_database_env_and_volumes(None)
     assert env == {}
     assert volumes == []
+
+
+# --- verify_database_mounts ---
+
+def test_verify_database_mounts_passes_when_file_present():
+    container = MagicMock()
+    container.exec_run.return_value = (0, b'')
+    error = verify_database_mounts(container, [
+        {'label': 'default', 'uri': '/host/data/patients.csv', 'type': 'csv'},
+    ])
+    assert error is None
+    container.exec_run.assert_called_once_with('test -f /mnt/default.csv')
+
+
+def test_verify_database_mounts_fails_when_file_missing_on_host():
+    """A bind-mount source that doesn't exist on the Docker host isn't an error
+    to Docker - it silently becomes an empty directory - so this is the only
+    thing that catches a user pasting a container-side path (e.g. this app's
+    own /data) into the Database URI field instead of the real host path."""
+    container = MagicMock()
+    container.exec_run.return_value = (1, b'')
+    error = verify_database_mounts(container, [
+        {'label': 'default', 'uri': '/data/patients.csv', 'type': 'csv'},
+    ])
+    assert error is not None
+    assert '/data/patients.csv' in error
+    assert 'Docker host' in error
+
+
+def test_verify_database_mounts_skips_connection_string_databases():
+    container = MagicMock()
+    error = verify_database_mounts(container, [
+        {'label': 'default', 'uri': 'postgresql://user:pass@host/db', 'type': 'postgres'},
+    ])
+    assert error is None
+    container.exec_run.assert_not_called()
+
+
+def test_verify_database_mounts_skips_entries_missing_label_or_uri():
+    container = MagicMock()
+    error = verify_database_mounts(container, [
+        {'label': '', 'uri': '/host/data.csv', 'type': 'csv'},
+        {'label': 'default', 'uri': '', 'type': 'csv'},
+    ])
+    assert error is None
+    container.exec_run.assert_not_called()
+
+
+def test_verify_database_mounts_stops_at_first_failing_database():
+    container = MagicMock()
+    container.exec_run.return_value = (1, b'')
+    error = verify_database_mounts(container, [
+        {'label': 'main', 'uri': '/host/main.csv', 'type': 'csv'},
+        {'label': 'extra', 'uri': '/host/extra.csv', 'type': 'csv'},
+    ])
+    assert error is not None
+    assert '/host/main.csv' in error
+    container.exec_run.assert_called_once()
+
+
+def test_verify_database_mounts_returns_none_when_container_not_running():
+    """exec_run() on a container that already exited raises APIError - some
+    other, unrelated failure already happened, so don't mask it with a
+    misleading "database file not found" message."""
+    container = MagicMock()
+    container.exec_run.side_effect = docker.errors.APIError('container is not running')
+    error = verify_database_mounts(container, [
+        {'label': 'default', 'uri': '/host/data.csv', 'type': 'csv'},
+    ])
+    assert error is None
+
+
+def test_verify_database_mounts_returns_none_for_no_databases():
+    container = MagicMock()
+    assert verify_database_mounts(container, None) is None
+    container.exec_run.assert_not_called()
 
 
 # --- get_default_node_image ---

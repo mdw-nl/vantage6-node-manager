@@ -14,7 +14,7 @@ from nodemanager.config import VANTAGE6_CONFIG_DIR, VANTAGE6_DATA_DIR, APPNAME
 from nodemanager.docker_utils import (
     get_docker_client, get_node_status, find_local_node_image,
     get_default_node_image, get_configured_node_image, build_database_env_and_volumes,
-    container_path_to_host_path
+    container_path_to_host_path, verify_database_mounts
 )
 from nodemanager.node_config import get_node_configs, can_access_config
 from nodemanager.server_api import get_server_version
@@ -201,7 +201,7 @@ def _create_node_container(name, config, client, requested_image=None):
 
     # Create and start the container
     try:
-        client.containers.run(
+        container = client.containers.run(
             image,
             command=cmd,
             volumes=volumes,
@@ -226,6 +226,14 @@ def _create_node_container(name, config, client, requested_image=None):
             f'Could not pull or run image "{image}". Check the Node Image on this node\'s '
             f'Edit page. Docker said: {e.explanation or e}'
         ) from e
+
+    mount_error = verify_database_mounts(container, config['data'].get('databases'))
+    if mount_error:
+        try:
+            container.remove(force=True)
+        except docker.errors.NotFound:
+            pass
+        raise RuntimeError(mount_error)
     return True
 
 
@@ -459,7 +467,7 @@ def bulk_start_nodes():
             cmd = f"vnode-local start --name {name} --config /mnt/config/{config_path.name} --dockerized {system_folders_option}"
 
             try:
-                client.containers.run(
+                container = client.containers.run(
                     image,
                     command=cmd,
                     volumes=volumes,
@@ -480,6 +488,15 @@ def bulk_start_nodes():
                     f'Could not pull or run image "{image}". Check the Node Image on this '
                     f'node\'s Edit page. Docker said: {e.explanation or e}'
                 ) from e
+
+            mount_error = verify_database_mounts(container, config['data'].get('databases'))
+            if mount_error:
+                try:
+                    container.remove(force=True)
+                except docker.errors.NotFound:
+                    pass
+                raise RuntimeError(mount_error)
+
             log_event(current_user.id, current_user.role, 'node.start', node_name=name, details='bulk')
             started.append(name)
         except Exception as e:
