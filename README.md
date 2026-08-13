@@ -54,22 +54,6 @@ Open your browser and navigate to `http://localhost:5000`
 
 ---
 
-### Full Setup with Git Clone (Recommended for Development)
-
-For a complete installation with git history:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/setup.sh | bash -s -- --start
-```
-
-Or install without auto-starting:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mdw-nl/vantage6-node-manager/main/setup.sh | bash
-```
-
----
-
 ### Using Pre-built Docker Image (Advanced)
 
 Pre-built images are automatically built and published via GitHub Actions.
@@ -227,7 +211,21 @@ then clicking Restart is enough to apply the change; there's no need to Stop and
 
 - `SECRET_KEY`: Flask secret key for session management (required in production)
 - `FLASK_ENV`: Set to `production` or `development`
-- `VANTAGE6_CONFIG_DIR`: Custom path for vantage6 configurations (optional)
+- `VANTAGE6_CONFIG_DIR`: Custom path for user vantage6 node configurations (optional, default
+  `/root/.config/vantage6/node`)
+- `VANTAGE6_SYSTEM_CONFIG_DIR`: Custom path for system-wide vantage6 node configurations (optional,
+  default `/etc/vantage6/node`)
+- `VANTAGE6_DATA_DIR`: Custom path for node data volumes (optional, default `/data`)
+- `USERS_FILE`: Custom path for the users store (optional, default a `users.yaml` sibling of
+  `VANTAGE6_CONFIG_DIR`) - see [Where the account is stored](#where-the-account-is-stored)
+- `NODE_OWNERS_FILE`: Custom path for the node ownership mapping (optional, default a
+  `node_owners.yaml` sibling of `VANTAGE6_CONFIG_DIR`) - see [Node ownership](#node-ownership)
+- `AUDIT_LOG_FILE`: Custom path for the audit log (optional, default an `audit.log` sibling of
+  `VANTAGE6_CONFIG_DIR`) - see [Activity log](#activity-log)
+- `NODE_IMAGE_REGISTRY` / `NODE_IMAGE_TAG`: Override the pinned default node Docker image (optional)
+  - see [Node Docker Image](#node-docker-image)
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD`: Seed the first admin account on first run (optional) - see
+  [Authentication](#authentication)
 
 ### Node Configuration Files
 
@@ -354,6 +352,27 @@ The application consists of:
 
 ## Development
 
+### Local Demo Server (`server/`)
+
+The `server/` directory spins up a throwaway local vantage6 **server** (not the Node Manager) to
+develop and test against, complete with demo organizations, a collaboration, and API keys - useful
+because the Node Manager itself only manages *nodes*; it needs a real server to register them
+against.
+
+```bash
+server/start.sh   # starts the demo server, waits for it to be healthy, imports
+                   # demo entities from entities.yaml on first run, and connects
+                   # the running vantage6-node-manager container to its network
+server/stop.sh    # disconnects the node manager and tears the demo server down
+```
+
+- Config: [`server/demoserver.yaml`](server/demoserver.yaml) (server settings) and
+  [`server/entities.yaml`](server/entities.yaml) (demo organizations/collaboration/API keys)
+- Compose file: [`server/docker-compose.server.yml`](server/docker-compose.server.yml)
+- Once running, the server is reachable at `http://localhost:5070`
+- This is dev/test-only - don't point a production node at it, and don't reuse its demo API keys
+  for anything real
+
 ### Running in Development Mode
 
 ```bash
@@ -427,6 +446,25 @@ python -m pytest tests/test_ownership.py::test_admin_delete_is_permanent -v
 - Verify the application is running: `docker ps` or check the terminal
 - Check if port 5000 is available: `lsof -i :5000`
 - If using Docker, ensure port mapping is correct in docker-compose.yml
+
+### Useful Docker Commands
+
+```bash
+# List all vantage6 containers (running and stopped)
+docker ps -a | grep vantage6
+
+# View a specific node's container logs
+docker logs vantage6-<node-name>-user
+
+# Stop and remove a node container manually
+docker stop vantage6-<node-name>-user
+docker rm vantage6-<node-name>-user
+
+# Rebuild and restart the Node Manager itself
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
 
 ### Encryption Issues
 

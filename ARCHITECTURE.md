@@ -16,22 +16,25 @@ vantage6-node-manager/
 │   └── crypto.py               #   RSA key-pair generation
 ├── requirements.txt            # Python dependencies
 ├── Dockerfile                  # Docker image definition
-├── docker-compose.yml          # Docker Compose configuration
-├── setup.sh                    # Setup script (executable)
+├── docker-compose.yml          # Docker Compose configuration (dev, builds from source)
+├── docker-compose.prod.yml     # Docker Compose configuration (production, pre-built image)
+├── start.sh                    # One-command install & start script (curl | bash)
 ├── .env.example               # Environment variables template
 ├── .gitignore                 # Git ignore rules
 ├── README.md                  # Main documentation
-├── GETTING_STARTED.md         # Quick start guide
 │
 ├── templates/                  # HTML templates (Jinja2)
 │   ├── base.html               #   Base template with sidebar navigation
 │   ├── login.html              #   Login form
 │   ├── index.html              #   Dashboard page
-│   ├── nodes.html              #   Node list page
+│   ├── nodes.html               #   Node list page
 │   ├── new_node.html           #   Create node form
 │   ├── edit_node.html          #   Edit node form
 │   ├── view_node.html          #   Node details, logs & task history
-│   └── import_node.html        #   Import node config/backup
+│   ├── import_node.html        #   Import node config/backup
+│   ├── users.html              #   User list (admin only)
+│   ├── new_user.html           #   Create user form (admin only)
+│   └── audit.html              #   Activity log (admin only)
 │
 └── static/                     # CSS, images (mdw-theme.css, logo)
 ```
@@ -197,10 +200,10 @@ encryption:
 - Example: `vantage6-hospital-a-user`
 
 **Container Configuration:**
-- Image: `harbor2.vantage6.ai/infrastructure/node:4.7.1`
-- Volumes: Config file, database files
-- Environment: `VANTAGE6_CONFIG_FILE`
-- Labels: `vantage6-type=node`, `vantage6-name={name}`
+- Image: see [Node Docker Image](README.md#node-docker-image) in the README for how the image is
+  resolved
+- Volumes: config directory, data/vpn/ssh/squid volumes (see [docs/PATHS_AND_VOLUMES.md](docs/PATHS_AND_VOLUMES.md))
+- Labels: `vantage6-type=node`, `name={name}`
 
 ## Technology Stack
 
@@ -221,24 +224,6 @@ encryption:
 
 ## Security Considerations
 
-**Environment Variables:**
-- SECRET_KEY stored in `.env` (not in git)
-- Generated randomly during setup
-
-**Docker Socket:**
-- Mounted read/write for container management
-- Requires appropriate host permissions
-
-**API Keys:**
-- Stored in YAML configs
-- Password input field (toggleable visibility)
-- Not exposed in API responses
-
-**Implemented:**
-- Session-based user authentication (Flask-Login), single admin account seeded on first run
-
-**Future Enhancements:**
-- Multi-user support with per-user accounts
-- Implement RBAC (Role-Based Access Control)
-- Encrypt sensitive config data
-- Add audit logging
+See the README's [Authentication](README.md#authentication) and
+[Security Considerations](README.md#security-considerations) sections for the current
+auth/RBAC/audit-log model — it's the authoritative, up-to-date description.
