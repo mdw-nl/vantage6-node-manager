@@ -139,6 +139,12 @@ Pre-built images are automatically built and published via GitHub Actions.
    - **Encryption** (optional): Enable end-to-end encryption and upload your private key
 3. Click **Create Node Configuration**
 
+On save, the app makes a best-effort check that the Server URL/API Key actually work (the same
+call used for the node health status - a plain HTTP request to the server, nothing Docker-related)
+and flashes the result. A failed check never blocks saving - the server may simply not be up yet -
+but if you see "Could not verify the server connection", double check the URL/port/API key before
+starting the node, since that's the most common reason a node fails to connect.
+
 #### Encryption Setup
 
 Vantage6 supports end-to-end encryption to protect communication between nodes and ensure data privacy. When creating a node:

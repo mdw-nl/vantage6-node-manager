@@ -25,7 +25,7 @@ from nodemanager.node_config import (
     get_node_configs, add_node_owner, set_node_owners, remove_node_owner,
     clear_node_owner, filter_visible_configs, can_access_config
 )
-from nodemanager.server_api import get_running_tasks
+from nodemanager.server_api import get_running_tasks, get_node_api_session
 from nodemanager.auth import admin_required, user_exists, list_assignable_usernames
 from nodemanager.audit import log_event
 
@@ -189,6 +189,29 @@ def _node_conflict_error(name, api_key, configs=None):
     return _api_key_conflict_error(name, api_key, configs)
 
 
+def _check_server_connection(data):
+    """Best-effort validation of server_url/api_key against the vantage6
+    server's own /token/node endpoint - the same call get_node_api_session()
+    already makes for the node health-status check, so nothing new is talked
+    to here, just a pure HTTP round trip to the server (never Docker, never
+    the node container).
+
+    Deliberately never blocks saving: unlike the Docker-host database check,
+    the server is an external system that may legitimately be unreachable
+    yet (not provisioned, mid-restart) at config time, and hard-blocking on
+    a wrong key here would let a typo-driven retry loop trip the server's
+    own login-attempt lockout before the node ever gets to connect for real.
+
+    Returns a (message, category) tuple to flash alongside the save
+    confirmation.
+    """
+    _, _, _, error = get_node_api_session({'data': data})
+    if error:
+        return (f'Could not verify the server connection: {error}. The node may fail to '
+                f'start until this is fixed.', 'warning')
+    return ('Connected to the vantage6 server and verified the API key.', 'success')
+
+
 @nodes_bp.route('/nodes/new', methods=['GET', 'POST'])
 def new_node():
     """Create a new node configuration.
@@ -289,6 +312,7 @@ def new_node():
                 flash(f'Node configuration "{name}" created successfully with encryption enabled!', 'success')
             else:
                 flash(f'Node configuration "{name}" created successfully!', 'success')
+            flash(*_check_server_connection(config))
             return redirect(url_for('nodes.list_nodes'))
 
         except Exception as e:
@@ -381,6 +405,7 @@ def edit_node(name):
                 flash(f'Node configuration "{name}" updated. Restart the node for the changes to take effect.', 'success')
             else:
                 flash(f'Node configuration "{name}" updated.', 'success')
+            flash(*_check_server_connection(data))
             return redirect(url_for('nodes.view_node', name=name))
 
         except Exception as e:

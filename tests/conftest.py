@@ -96,6 +96,21 @@ def reset_audit_log():
     yield
 
 
+@pytest.fixture(autouse=True)
+def stub_server_connection_check(monkeypatch):
+    """new_node()/edit_node() ping the vantage6 server's own API to validate
+    server_url/api_key at save time (nodes.py's _check_server_connection()).
+    Default that to "success" for every test so the suite doesn't make real
+    network calls to https://example.com (the placeholder server_url
+    create_node() uses) on every single node creation. Tests that
+    specifically exercise the check itself override this binding directly.
+    """
+    monkeypatch.setattr(
+        'nodemanager.nodes.get_node_api_session',
+        lambda config: ('https://example.com/api', {}, {'id': 1}, None)
+    )
+
+
 @pytest.fixture
 def client():
     flask_app_module.app.config['TESTING'] = True
