@@ -204,6 +204,34 @@ def get_running_tasks(node_name):
     return tasks
 
 
+# The node-manager doesn't depend on the vantage6 package itself, so these
+# mirror vantage6.common.task_status.TaskStatus - the raw 'status' strings a
+# run can have on the server, and their operator-facing labels. Everything
+# NOT in _ACTIVE_STATUSES is treated as a failure (matching that module's own
+# has_task_failed()), so a status vantage6 adds in a future release still
+# surfaces as an error instead of being silently mislabeled as pending.
+_ACTIVE_STATUSES = {'pending', 'initializing', 'active', 'completed'}
+
+_ERROR_LABELS = {
+    'failed': 'Failed',
+    'start failed': 'Failed to start',
+    'non-existing Docker image': 'Algorithm image not found',
+    'crashed': 'Crashed',
+    'killed by user': 'Killed',
+    'not allowed': 'Not allowed by node policy',
+    'unknown error': 'Unknown error',
+}
+
+
+def _error_label(raw_status):
+    """Operator-facing label for a failed run's raw server status."""
+    if raw_status in _ERROR_LABELS:
+        return _ERROR_LABELS[raw_status]
+    if not raw_status:
+        return 'Unknown error'
+    return raw_status.replace('_', ' ').capitalize()
+
+
 def get_task_history(config, per_page=10, page=1):
     """
     Fetch a page of this node's task-execution history from the vantage6
@@ -241,13 +269,24 @@ def get_task_history(config, per_page=10, page=1):
         task = run.get('task') or {}
         started_at = run.get('started_at')
         finished_at = run.get('finished_at')
+        raw_status = run.get('status')
 
-        if finished_at:
-            status = 'completed' if run.get('status') == 'completed' else 'error'
+        status_label = None
+        if raw_status not in _ACTIVE_STATUSES:
+            # A failure can happen before the run ever gets a started_at/
+            # finished_at (e.g. rejected by node policy, missing image) -
+            # check this first so those don't fall through to 'pending'.
+            status = 'error'
+            status_label = _error_label(raw_status)
+        elif finished_at:
+            status = 'completed'
         elif started_at:
             status = 'running'
         else:
             status = 'pending'
+
+        if status_label is None:
+            status_label = status.capitalize()
 
         duration_seconds = None
         if started_at and finished_at:
@@ -274,6 +313,7 @@ def get_task_history(config, per_page=10, page=1):
             'finished_at': finished_at,
             'duration_display': duration_display,
             'status': status,
+            'status_label': status_label,
         })
 
     total_pages = max(1, (total + per_page - 1) // per_page)

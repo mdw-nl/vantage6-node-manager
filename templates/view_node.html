@@ -484,7 +484,7 @@
                     const statusCell = document.createElement('td');
                     const statusBadge = document.createElement('span');
                     statusBadge.className = 'badge bg-' + (TASK_STATUS_CLASSES[t.status] || 'secondary');
-                    statusBadge.textContent = t.status;
+                    statusBadge.textContent = t.status_label || t.status;
                     statusCell.appendChild(statusBadge);
 
                     tr.append(taskCell, runCell, imageCell, startedCell, durationCell, statusCell);

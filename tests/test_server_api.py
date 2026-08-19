@@ -269,6 +269,84 @@ def test_task_history_error_status_when_finished_but_not_completed(monkeypatch):
     with patch('nodemanager.server_api.requests.get', return_value=resp):
         result = get_task_history(_config())
     assert result['tasks'][0]['status'] == 'error'
+    assert result['tasks'][0]['status_label'] == 'Failed'
+
+
+# Every raw status vantage6.common.task_status.TaskStatus can report for a
+# failed run, and the operator-facing label it must map to. If vantage6 adds
+# or renames a status, this is the list to update.
+VANTAGE6_ERROR_STATUSES = [
+    ('failed', 'Failed'),
+    ('start failed', 'Failed to start'),
+    ('non-existing Docker image', 'Algorithm image not found'),
+    ('crashed', 'Crashed'),
+    ('killed by user', 'Killed'),
+    ('not allowed', 'Not allowed by node policy'),
+    ('unknown error', 'Unknown error'),
+]
+
+
+@pytest.mark.parametrize('raw_status,expected_label', VANTAGE6_ERROR_STATUSES)
+def test_task_history_every_known_error_status_has_correct_label(monkeypatch, raw_status, expected_label):
+    monkeypatch.setattr('nodemanager.server_api.get_node_api_session',
+                         lambda config: ('base', {}, {'id': 1}, None))
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = {'data': [_run(5, status=raw_status)]}
+    resp.headers = {'total-count': '1'}
+    with patch('nodemanager.server_api.requests.get', return_value=resp):
+        result = get_task_history(_config())
+    assert result['tasks'][0]['status'] == 'error'
+    assert result['tasks'][0]['status_label'] == expected_label
+
+
+def test_task_history_error_status_before_run_ever_started(monkeypatch):
+    """A run can fail (e.g. rejected by node policy, missing image) before it
+    ever gets a started_at/finished_at - this must still surface as an error,
+    not be swallowed into 'pending' just because the timestamps are unset."""
+    monkeypatch.setattr('nodemanager.server_api.get_node_api_session',
+                         lambda config: ('base', {}, {'id': 1}, None))
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = {'data': [_run(6, status='not allowed', started_at=None, finished_at=None)]}
+    resp.headers = {'total-count': '1'}
+    with patch('nodemanager.server_api.requests.get', return_value=resp):
+        result = get_task_history(_config())
+    assert result['tasks'][0]['status'] == 'error'
+    assert result['tasks'][0]['status_label'] == 'Not allowed by node policy'
+
+
+def test_task_history_unrecognized_status_still_flagged_as_error(monkeypatch):
+    """A status vantage6 doesn't currently define (future release, or None)
+    must still show as an error rather than silently rendering as pending."""
+    monkeypatch.setattr('nodemanager.server_api.get_node_api_session',
+                         lambda config: ('base', {}, {'id': 1}, None))
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = {'data': [
+        _run(7, status='some_future_status', started_at=None, finished_at=None),
+        _run(8, status=None, started_at=None, finished_at=None),
+    ]}
+    resp.headers = {'total-count': '2'}
+    with patch('nodemanager.server_api.requests.get', return_value=resp):
+        result = get_task_history(_config())
+    assert result['tasks'][0]['status'] == 'error'
+    assert result['tasks'][0]['status_label'] == 'Some future status'
+    assert result['tasks'][1]['status'] == 'error'
+    assert result['tasks'][1]['status_label'] == 'Unknown error'
+
+
+def test_task_history_status_labels_for_non_error_buckets(monkeypatch):
+    monkeypatch.setattr('nodemanager.server_api.get_node_api_session',
+                         lambda config: ('base', {}, {'id': 1}, None))
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = {'data': [_run(9)]}
+    resp.headers = {'total-count': '1'}
+    with patch('nodemanager.server_api.requests.get', return_value=resp):
+        result = get_task_history(_config())
+    assert result['tasks'][0]['status'] == 'completed'
+    assert result['tasks'][0]['status_label'] == 'Completed'
 
 
 def test_task_history_pagination_math():
