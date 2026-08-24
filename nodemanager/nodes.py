@@ -8,6 +8,7 @@ orphan the container in the backend).
 import os
 import re
 import io
+from itertools import zip_longest
 import yaml
 import zipfile
 import docker
@@ -138,6 +139,60 @@ def _process_encryption_form(name, current_private_key=None):
     return False, None
 
 
+def _parse_databases_from_form(existing_databases=None):
+    """Parse the database section of the create/edit node form into
+    vantage6's `databases` config list.
+
+    A node isn't limited to one database: the vantage6 node config schema
+    takes a list, each entry with its own label, and an algorithm task
+    picks which one it wants by label at run time (see
+    build_database_env_and_volumes(), which already loops over the whole
+    list). The form mirrors that with parallel arrays - one db_label/db_uri/
+    db_type per row - rather than a single field each, so the UI can offer
+    a "+ add another database" row.
+
+    The form only manages label/uri/type - not every key the schema allows
+    (e.g. mount_mode: ro/copy, see build_database_env_and_volumes()), so a
+    row whose label matches one in `existing_databases` (edit_node() passes
+    the node's current list; new_node() has none) has its other keys carried
+    over rather than dropped. A label match is the only identity a row has
+    across an edit - a renamed database is indistinguishable from
+    remove-old-add-new and loses whatever hand-authored keys it had, same as
+    it would if actually removed and re-added.
+
+    Returns (databases, error) - error is a user-facing string (e.g. a
+    duplicate label, which would otherwise silently collide into the same
+    <LABEL>_DATABASE_URI environment variable) or None if the list is valid.
+    Rows with a blank URI are dropped rather than rejected, since that's
+    what an emptied-out "removed" row looks like once submitted. A row
+    whose label was left blank (or omitted entirely, e.g. a hand-built form
+    post with just one database and no db_label field at all) falls back to
+    "default", matching this form's pre-multi-database behaviour.
+    zip_longest (not zip) is deliberate: it's what makes that fallback work
+    when db_label is missing outright rather than merely empty - zip would
+    silently drop the row instead, since it stops at the shortest list.
+    """
+    labels = request.form.getlist('db_label')
+    uris = request.form.getlist('db_uri')
+    types = request.form.getlist('db_type')
+    old_by_label = {db.get('label'): db for db in (existing_databases or []) if db.get('label')}
+
+    databases = []
+    seen_labels = set()
+    for label, uri, db_type in zip_longest(labels, uris, types, fillvalue=''):
+        label = (label or '').strip() or 'default'
+        uri = (uri or '').strip()
+        if not uri:
+            continue
+        if label in seen_labels:
+            return None, (f'Database label "{label}" is used more than once - each database '
+                           f'needs a unique label so algorithms can tell them apart.')
+        seen_labels.add(label)
+        databases.append({**old_by_label.get(label, {}), 'label': label, 'uri': uri, 'type': db_type or 'csv'})
+
+    return databases, None
+
+
 def _valid_node_name(name):
     return bool(re.fullmatch(r'[A-Za-z0-9_-]{1,64}', name or ''))
 
@@ -236,10 +291,14 @@ def new_node():
             # Use persistent data directory instead of /tmp for container environments
             task_dir = request.form.get('task_dir', '/mnt/data/tasks')
 
-            # Database configuration
-            db_label = request.form.get('db_label', 'default')
-            db_uri = request.form.get('db_uri')
-            db_type = request.form.get('db_type', 'csv')
+            # Database configuration - one or more rows, see _parse_databases_from_form()
+            databases, db_error = _parse_databases_from_form()
+            if db_error:
+                flash(db_error, 'error')
+                return render_template('new_node.html', default_image=get_default_node_image())
+            if not databases:
+                flash('At least one database (label + URI) is required.', 'error')
+                return render_template('new_node.html', default_image=get_default_node_image())
 
             # Whether the node may run algorithm images that aren't pullable from a
             # registry (e.g. local `docker build` images used in development)
@@ -270,11 +329,7 @@ def new_node():
                 'api_path': api_path,
                 'task_dir': task_dir,
                 'images': {'node': image} if image else None,
-                'databases': [{
-                    'label': db_label,
-                    'uri': db_uri,
-                    'type': db_type
-                }],
+                'databases': databases,
                 'logging': {
                     'backup_count': 5,
                     'datefmt': '%Y-%m-%d %H:%M:%S',
@@ -329,8 +384,11 @@ def edit_node(name):
     Unlike new_node(), this loads the node's current YAML and only
     overwrites the specific fields the form covers (including images.node,
     now that the form exposes it) - anything else already in the file (e.g.
-    node_extra_hosts, extra databases beyond the first, or fields added by
-    hand-editing/importing) survives untouched.
+    node_extra_hosts, or fields added by hand-editing/importing) survives
+    untouched. `databases` is the one list-valued field the form fully
+    replaces rather than merges: the template renders one editable row per
+    existing entry (see _parse_databases_from_form()), so nothing is
+    silently dropped as long as the submitted form reflects what was shown.
     Renaming isn't supported here: the config filename, container name and
     the server's own record of the node are all tied to the current name.
     """
@@ -375,11 +433,21 @@ def edit_node(name):
                     )
                 data['api_key'] = api_key
 
-            db_label = request.form.get('db_label', 'default')
-            db_uri = request.form.get('db_uri')
-            db_type = request.form.get('db_type', 'csv')
-            databases = data.get('databases') or [{}]
-            databases[0] = {'label': db_label, 'uri': db_uri, 'type': db_type}
+            databases, db_error = _parse_databases_from_form(data.get('databases'))
+            if db_error:
+                flash(db_error, 'error')
+                return render_template(
+                    'edit_node.html', config=config,
+                    configured_image=get_configured_node_image(config['data'] or {}),
+                    default_image=get_default_node_image()
+                )
+            if not databases:
+                flash('At least one database (label + URI) is required.', 'error')
+                return render_template(
+                    'edit_node.html', config=config,
+                    configured_image=get_configured_node_image(config['data'] or {}),
+                    default_image=get_default_node_image()
+                )
             data['databases'] = databases
 
             existing_encryption = data.get('encryption') or {}

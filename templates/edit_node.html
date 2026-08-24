@@ -29,7 +29,7 @@
 </div>
 {% endif %}
 
-{% set db = config.data.databases[0] if config.data.databases else {} %}
+{% set databases = config.data.databases if config.data.databases else [{}] %}
 {% set policies = config.data.policies or {} %}
 
 <div class="row g-4">
@@ -101,32 +101,46 @@
 
             <div class="card mb-4">
                 <div class="card-header">
-                    <i class="bi bi-database"></i> Database
+                    <i class="bi bi-database"></i> Databases
                 </div>
                 <div class="card-body">
-                    {% if config.data.databases and config.data.databases|length > 1 %}
-                    <div class="alert alert-secondary mb-3" style="font-size: 0.8rem;">
-                        This node has {{ config.data.databases|length }} configured databases. Only the first
-                        (<code>{{ db.label }}</code>) is editable here; the rest are kept as-is.
+                    <div id="databases_container">
+                        {% for db in databases %}
+                        <div class="database-row border rounded p-3 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong class="small text-secondary db-row-label">Database {{ loop.index }}</strong>
+                                <button type="button" class="btn btn-sm btn-outline-danger remove-database-btn"
+                                        style="display: {{ 'inline-block' if databases|length > 1 else 'none' }};">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Label <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="db_label" required
+                                       value="{{ db.label or 'default' }}" placeholder="default">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">URI <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="db_uri" required
+                                       value="{{ db.uri or '' }}" placeholder="/path/to/data.csv">
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label">Type</label>
+                                <select class="form-select" name="db_type">
+                                    {% for t in ['csv', 'parquet', 'sql', 'excel', 'sparql'] %}
+                                    <option value="{{ t }}" {{ 'selected' if (db.type or 'csv') == t else '' }}>{{ t|upper if t in ['csv', 'sql'] else t|capitalize }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% endif %}
-                    <div class="mb-3">
-                        <label for="db_label" class="form-label">Label <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="db_label" name="db_label" required
-                               value="{{ db.label or 'default' }}" placeholder="default">
-                    </div>
-                    <div class="mb-3">
-                        <label for="db_uri" class="form-label">URI <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="db_uri" name="db_uri" required
-                               value="{{ db.uri or '' }}" placeholder="/path/to/data.csv">
-                    </div>
-                    <div class="mb-0">
-                        <label for="db_type" class="form-label">Type</label>
-                        <select class="form-select" id="db_type" name="db_type">
-                            {% for t in ['csv', 'parquet', 'sql', 'excel', 'sparql'] %}
-                            <option value="{{ t }}" {{ 'selected' if (db.type or 'csv') == t else '' }}>{{ t|upper if t in ['csv', 'sql'] else t|capitalize }}</option>
-                            {% endfor %}
-                        </select>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="add_database_btn">
+                        <i class="bi bi-plus-lg"></i> Add another database
+                    </button>
+                    <div class="form-text mt-2">
+                        A node can serve more than one database. Each needs a unique label &mdash;
+                        algorithms request data by label when a task runs.
                     </div>
                 </div>
             </div>
@@ -248,7 +262,7 @@
                 <i class="bi bi-question-circle"></i> Help
             </div>
             <div class="card-body" style="font-size: 0.825rem;">
-                <p class="mb-2">Changes are written straight into <code>{{ config.path }}</code> &mdash; fields not shown on this form (e.g. custom images, extra hosts, additional databases) are preserved as-is.</p>
+                <p class="mb-2">Changes are written straight into <code>{{ config.path }}</code> &mdash; fields not shown on this form (e.g. custom images, extra hosts) are preserved as-is.</p>
                 <p class="mb-0">A running node only picks up config changes after it's restarted.</p>
             </div>
         </div>
@@ -262,6 +276,34 @@
         e.preventDefault();
         var el = document.getElementById('api_key');
         el.type = el.type === 'password' ? 'text' : 'password';
+    });
+
+    function renumberDatabaseRows() {
+        var rows = document.querySelectorAll('#databases_container .database-row');
+        rows.forEach(function(row, idx) {
+            row.querySelector('.db-row-label').textContent = 'Database ' + (idx + 1);
+            row.querySelector('.remove-database-btn').style.display = rows.length > 1 ? 'inline-block' : 'none';
+        });
+    }
+
+    document.getElementById('add_database_btn').addEventListener('click', function() {
+        var container = document.getElementById('databases_container');
+        var newRow = container.querySelector('.database-row').cloneNode(true);
+        newRow.querySelectorAll('input[type="text"]').forEach(function(input) { input.value = ''; });
+        var select = newRow.querySelector('select');
+        if (select) select.selectedIndex = 0;
+        container.appendChild(newRow);
+        renumberDatabaseRows();
+    });
+
+    document.getElementById('databases_container').addEventListener('click', function(e) {
+        var btn = e.target.closest('.remove-database-btn');
+        if (!btn) return;
+        var rows = document.querySelectorAll('#databases_container .database-row');
+        if (rows.length > 1) {
+            btn.closest('.database-row').remove();
+            renumberDatabaseRows();
+        }
     });
 
     function toggleEncryptionOptions() {
